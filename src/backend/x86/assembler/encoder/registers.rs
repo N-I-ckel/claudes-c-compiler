@@ -25,7 +25,8 @@ pub(crate) fn reg_num(name: &str) -> Option<u8> {
 
 /// Is this an MMX register?
 pub(crate) fn is_mmx(name: &str) -> bool {
-    name.starts_with("mm") && !name.starts_with("mmx")
+    name.starts_with("mm")
+        && !name.starts_with("mmx")
         && name.len() <= 3
         && name.as_bytes().get(2).is_some_and(|c| c.is_ascii_digit())
 }
@@ -51,8 +52,25 @@ pub(crate) fn control_reg_num(name: &str) -> Option<u8> {
 }
 
 pub(crate) fn is_debug_reg(name: &str) -> bool {
-    matches!(name, "db0" | "db1" | "db2" | "db3" | "db4" | "db5" | "db6" | "db7"
-                  | "dr0" | "dr1" | "dr2" | "dr3" | "dr4" | "dr5" | "dr6" | "dr7")
+    matches!(
+        name,
+        "db0"
+            | "db1"
+            | "db2"
+            | "db3"
+            | "db4"
+            | "db5"
+            | "db6"
+            | "db7"
+            | "dr0"
+            | "dr1"
+            | "dr2"
+            | "dr3"
+            | "dr4"
+            | "dr5"
+            | "dr6"
+            | "dr7"
+    )
 }
 
 pub(crate) fn debug_reg_num(name: &str) -> Option<u8> {
@@ -76,17 +94,30 @@ pub(crate) fn is_ymm(name: &str) -> bool {
 
 /// Does this register need the REX.B/R/X extension bit?
 pub(crate) fn needs_rex_ext(name: &str) -> bool {
-    name.starts_with("r8") || name.starts_with("r9") || name.starts_with("r10")
-        || name.starts_with("r11") || name.starts_with("r12") || name.starts_with("r13")
-        || name.starts_with("r14") || name.starts_with("r15")
-        || name.starts_with("xmm8") || name.starts_with("xmm9")
-        || name.starts_with("xmm10") || name.starts_with("xmm11")
-        || name.starts_with("xmm12") || name.starts_with("xmm13")
-        || name.starts_with("xmm14") || name.starts_with("xmm15")
-        || name.starts_with("ymm8") || name.starts_with("ymm9")
-        || name.starts_with("ymm10") || name.starts_with("ymm11")
-        || name.starts_with("ymm12") || name.starts_with("ymm13")
-        || name.starts_with("ymm14") || name.starts_with("ymm15")
+    name.starts_with("r8")
+        || name.starts_with("r9")
+        || name.starts_with("r10")
+        || name.starts_with("r11")
+        || name.starts_with("r12")
+        || name.starts_with("r13")
+        || name.starts_with("r14")
+        || name.starts_with("r15")
+        || name.starts_with("xmm8")
+        || name.starts_with("xmm9")
+        || name.starts_with("xmm10")
+        || name.starts_with("xmm11")
+        || name.starts_with("xmm12")
+        || name.starts_with("xmm13")
+        || name.starts_with("xmm14")
+        || name.starts_with("xmm15")
+        || name.starts_with("ymm8")
+        || name.starts_with("ymm9")
+        || name.starts_with("ymm10")
+        || name.starts_with("ymm11")
+        || name.starts_with("ymm12")
+        || name.starts_with("ymm13")
+        || name.starts_with("ymm14")
+        || name.starts_with("ymm15")
 }
 
 /// Does this register need the VEX.B extension bit? Same as REX ext but for VEX-encoded instructions.
@@ -96,27 +127,96 @@ pub(crate) fn needs_vex_ext(name: &str) -> bool {
 
 /// Is this a 64-bit GP register?
 pub(crate) fn is_reg64(name: &str) -> bool {
-    matches!(name, "rax" | "rcx" | "rdx" | "rbx" | "rsp" | "rbp" | "rsi" | "rdi"
-        | "r8" | "r9" | "r10" | "r11" | "r12" | "r13" | "r14" | "r15")
+    matches!(
+        name,
+        "rax"
+            | "rcx"
+            | "rdx"
+            | "rbx"
+            | "rsp"
+            | "rbp"
+            | "rsi"
+            | "rdi"
+            | "r8"
+            | "r9"
+            | "r10"
+            | "r11"
+            | "r12"
+            | "r13"
+            | "r14"
+            | "r15"
+    )
 }
 
 /// Is this a 32-bit GP register?
 pub(crate) fn is_reg32(name: &str) -> bool {
-    matches!(name, "eax" | "ecx" | "edx" | "ebx" | "esp" | "ebp" | "esi" | "edi"
-        | "r8d" | "r9d" | "r10d" | "r11d" | "r12d" | "r13d" | "r14d" | "r15d")
+    matches!(
+        name,
+        "eax"
+            | "ecx"
+            | "edx"
+            | "ebx"
+            | "esp"
+            | "ebp"
+            | "esi"
+            | "edi"
+            | "r8d"
+            | "r9d"
+            | "r10d"
+            | "r11d"
+            | "r12d"
+            | "r13d"
+            | "r14d"
+            | "r15d"
+    )
 }
 
 /// Is this a 16-bit GP register?
 pub(crate) fn is_reg16(name: &str) -> bool {
-    matches!(name, "ax" | "cx" | "dx" | "bx" | "sp" | "bp" | "si" | "di"
-        | "r8w" | "r9w" | "r10w" | "r11w" | "r12w" | "r13w" | "r14w" | "r15w")
+    matches!(
+        name,
+        "ax" | "cx"
+            | "dx"
+            | "bx"
+            | "sp"
+            | "bp"
+            | "si"
+            | "di"
+            | "r8w"
+            | "r9w"
+            | "r10w"
+            | "r11w"
+            | "r12w"
+            | "r13w"
+            | "r14w"
+            | "r15w"
+    )
 }
 
 /// Is this an 8-bit GP register?
 pub(crate) fn is_reg8(name: &str) -> bool {
-    matches!(name, "al" | "cl" | "dl" | "bl" | "ah" | "ch" | "dh" | "bh"
-        | "spl" | "bpl" | "sil" | "dil"
-        | "r8b" | "r9b" | "r10b" | "r11b" | "r12b" | "r13b" | "r14b" | "r15b")
+    matches!(
+        name,
+        "al" | "cl"
+            | "dl"
+            | "bl"
+            | "ah"
+            | "ch"
+            | "dh"
+            | "bh"
+            | "spl"
+            | "bpl"
+            | "sil"
+            | "dil"
+            | "r8b"
+            | "r9b"
+            | "r10b"
+            | "r11b"
+            | "r12b"
+            | "r13b"
+            | "r14b"
+            | "r15b"
+    )
 }
 
 /// Does this 8-bit register require REX prefix for access (spl, bpl, sil, dil)?
@@ -137,24 +237,27 @@ pub(crate) fn is_xmm_or_ymm(name: &str) -> bool {
 /// Get the operand-size suffix character for a register name.
 /// Returns 'q' for 64-bit, 'l' for 32-bit, 'w' for 16-bit, 'b' for 8-bit.
 pub(crate) fn register_size_suffix(name: &str) -> Option<char> {
-    if is_reg64(name) { return Some('q'); }
-    if is_reg32(name) { return Some('l'); }
-    if is_reg16(name) { return Some('w'); }
-    if is_reg8(name) { return Some('b'); }
+    if is_reg64(name) {
+        return Some('q');
+    }
+    if is_reg32(name) {
+        return Some('l');
+    }
+    if is_reg16(name) {
+        return Some('w');
+    }
+    if is_reg8(name) {
+        return Some('b');
+    }
     None
 }
 
 /// Set of base mnemonics that accept AT&T size suffixes (b/w/l/q).
 /// Only these mnemonics will have suffixes inferred from operand types.
 pub(crate) const SUFFIXABLE_MNEMONICS: &[&str] = &[
-    "mov", "add", "sub", "and", "or", "xor", "cmp", "test",
-    "push", "pop", "lea",
-    "shl", "shr", "sar", "rol", "ror",
-    "inc", "dec", "neg", "not",
-    "imul", "mul", "div", "idiv",
-    "adc", "sbb",
-    "xchg", "cmpxchg", "xadd", "bswap",
-    "bsf", "bsr",
+    "mov", "add", "sub", "and", "or", "xor", "cmp", "test", "push", "pop", "lea", "shl", "shr",
+    "sar", "rol", "ror", "inc", "dec", "neg", "not", "imul", "mul", "div", "idiv", "adc", "sbb",
+    "xchg", "cmpxchg", "xadd", "bswap", "bsf", "bsr",
 ];
 
 /// Infer the AT&T size suffix for an unsuffixed mnemonic from its operands.
@@ -201,21 +304,19 @@ pub(crate) fn infer_suffix(mnemonic: &str, ops: &[Operand]) -> String {
 pub(crate) fn mnemonic_size_suffix(mnemonic: &str) -> Option<u8> {
     // Handle mnemonics that don't follow the simple suffix pattern
     match mnemonic {
-        "cltq" | "cqto" | "cltd" | "cdq" | "cqo" | "ret" | "nop" | "ud2"
-        | "endbr64" | "pause" | "mfence" | "lfence" | "sfence" | "clflush"
-        | "syscall" | "sysenter" | "cpuid" | "rdtsc" | "rdtscp" | "rdpmc"
-        | "clc" | "stc" | "cli" | "sti" | "cld" | "std" | "sahf" | "lahf" | "fninit" | "fwait" | "wait" | "fnstcw" | "fstcw"
-        | "fld1" | "fldl2e" | "fldlg2" | "fldln2" | "fldz" | "fldpi" | "fldl2t"
-        | "fabs" | "fsqrt" | "frndint" | "f2xm1" | "fscale" | "fpatan" | "fprem" | "fprem1"
-        | "fyl2x" | "fyl2xp1" | "fptan" | "fsin" | "fcos" | "fxtract" | "fnclex" | "fxch"
-        | "fadd" | "fmul" | "fsub" | "fdiv" | "fnstenv" | "fldenv" | "fnstsw"
-        | "ldmxcsr" | "stmxcsr" | "wbinvd" | "invd" | "rdsspq" | "rdsspd"
-        | "lmsw" | "smsw"
-        | "pushf" | "pushfq" | "pushfl" | "popf" | "popfq" | "popfl" | "int3"
-        | "movsq" | "stosq" | "movsw" | "stosw" | "lodsb" | "lodsw" | "lodsd" | "lodsq"
-        | "scasb" | "scasw" | "scasd" | "scasq" | "cmpsb" | "cmpsw" | "cmpsd" | "cmpsq"
-        | "insb" | "insw" | "insd" | "insl" | "outsb" | "outsw" | "outsd" | "outsl"
-        | "inb" | "inw" | "inl" | "outb" | "outw" | "outl" => return None,
+        "cltq" | "cqto" | "cltd" | "cdq" | "cqo" | "ret" | "nop" | "ud2" | "endbr64" | "pause"
+        | "mfence" | "lfence" | "sfence" | "clflush" | "syscall" | "sysenter" | "cpuid"
+        | "rdtsc" | "rdtscp" | "rdpmc" | "clc" | "stc" | "cli" | "sti" | "cld" | "std" | "sahf"
+        | "lahf" | "fninit" | "fwait" | "wait" | "fnstcw" | "fstcw" | "fld1" | "fldl2e"
+        | "fldlg2" | "fldln2" | "fldz" | "fldpi" | "fldl2t" | "fabs" | "fsqrt" | "frndint"
+        | "f2xm1" | "fscale" | "fpatan" | "fprem" | "fprem1" | "fyl2x" | "fyl2xp1" | "fptan"
+        | "fsin" | "fcos" | "fxtract" | "fnclex" | "fxch" | "fadd" | "fmul" | "fsub" | "fdiv"
+        | "fnstenv" | "fldenv" | "fnstsw" | "ldmxcsr" | "stmxcsr" | "wbinvd" | "invd"
+        | "rdsspq" | "rdsspd" | "lmsw" | "smsw" | "pushf" | "pushfq" | "pushfl" | "popf"
+        | "popfq" | "popfl" | "int3" | "movsq" | "stosq" | "movsw" | "stosw" | "lodsb"
+        | "lodsw" | "lodsd" | "lodsq" | "scasb" | "scasw" | "scasd" | "scasq" | "cmpsb"
+        | "cmpsw" | "cmpsd" | "cmpsq" | "insb" | "insw" | "insd" | "insl" | "outsb" | "outsw"
+        | "outsd" | "outsl" | "inb" | "inw" | "inl" | "outb" | "outw" | "outl" => return None,
         _ => {}
     }
 
@@ -231,13 +332,21 @@ pub(crate) fn mnemonic_size_suffix(mnemonic: &str) -> Option<u8> {
 
 /// Infer register size in bytes from register name.
 pub(crate) fn infer_reg_size(name: &str) -> u8 {
-    if is_reg64(name) { 8 }
-    else if is_reg32(name) { 4 }
-    else if is_reg16(name) { 2 }
-    else if is_reg8(name) { 1 }
-    else if is_xmm(name) { 16 }
-    else if is_ymm(name) { 32 }
-    else { 8 } // mmx and other registers default to 8
+    if is_reg64(name) {
+        8
+    } else if is_reg32(name) {
+        4
+    } else if is_reg16(name) {
+        2
+    } else if is_reg8(name) {
+        1
+    } else if is_xmm(name) {
+        16
+    } else if is_ymm(name) {
+        32
+    } else {
+        8
+    } // mmx and other registers default to 8
 }
 
 /// Infer operand size from a pair of operands for suffix-less instructions.
@@ -245,11 +354,21 @@ pub(crate) fn infer_operand_size_from_pair(op1: &Operand, op2: &Operand) -> u8 {
     // Try to infer from register operands
     for op in [op1, op2] {
         if let Operand::Register(r) = op {
-            if is_segment_reg(&r.name) { continue; }
-            if is_reg64(&r.name) { return 8; }
-            if is_reg32(&r.name) { return 4; }
-            if is_reg16(&r.name) { return 2; }
-            if is_reg8(&r.name) { return 1; }
+            if is_segment_reg(&r.name) {
+                continue;
+            }
+            if is_reg64(&r.name) {
+                return 8;
+            }
+            if is_reg32(&r.name) {
+                return 4;
+            }
+            if is_reg16(&r.name) {
+                return 2;
+            }
+            if is_reg8(&r.name) {
+                return 1;
+            }
         }
     }
     // Default to 64-bit
@@ -262,7 +381,8 @@ pub(crate) fn parse_st_num(name: &str) -> Result<u8, String> {
         return Ok(0);
     }
     if name.starts_with("st(") && name.ends_with(')') {
-        let n: u8 = name[3..name.len()-1].parse()
+        let n: u8 = name[3..name.len() - 1]
+            .parse()
             .map_err(|_| format!("bad st register: {}", name))?;
         if n > 7 {
             return Err(format!("st register out of range: {}", name));

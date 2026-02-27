@@ -69,7 +69,10 @@ pub(super) fn compact_frame(store: &mut LineStore, infos: &mut [LineInfo]) {
             if let Some(val_str) = rest.strip_suffix(", %rsp") {
                 match val_str.parse::<i64>() {
                     Ok(v) => v,
-                    Err(_) => { i = j + 1; continue; }
+                    Err(_) => {
+                        i = j + 1;
+                        continue;
+                    }
                 }
             } else {
                 i = j + 1;
@@ -98,7 +101,12 @@ pub(super) fn compact_frame(store: &mut LineStore, infos: &mut [LineInfo]) {
                 scan += 1;
                 continue;
             }
-            if let LineKind::StoreRbp { reg, offset, size: MoveSize::Q } = infos[scan].kind {
+            if let LineKind::StoreRbp {
+                reg,
+                offset,
+                size: MoveSize::Q,
+            } = infos[scan].kind
+            {
                 if is_callee_saved_reg(reg) && offset < 0 {
                     saves.push(CalleeSave {
                         reg,
@@ -195,9 +203,9 @@ pub(super) fn compact_frame(store: &mut LineStore, infos: &mut [LineInfo]) {
         // track read offsets (not sizes), conservatively assume each read is 8
         // bytes (the maximum movq size) to avoid missing overlaps.
         store_only_lines.retain(|&(off, sz, _)| {
-            !read_offsets.iter().any(|&r_off| {
-                ranges_overlap(off, sz, r_off, 8)
-            })
+            !read_offsets
+                .iter()
+                .any(|&r_off| ranges_overlap(off, sz, r_off, 8))
         });
 
         if bail {
@@ -286,9 +294,17 @@ pub(super) fn compact_frame(store: &mut LineStore, infos: &mut [LineInfo]) {
             if infos[k].is_nop() {
                 continue;
             }
-            if let LineKind::LoadRbp { reg, offset, size: MoveSize::Q } = infos[k].kind {
+            if let LineKind::LoadRbp {
+                reg,
+                offset,
+                size: MoveSize::Q,
+            } = infos[k].kind
+            {
                 if is_callee_saved_reg(reg) && is_near_epilogue(infos, k) {
-                    if let Some(&(_, _, new_off)) = new_offsets.iter().find(|&&(r, old_off, _)| r == reg && old_off == offset) {
+                    if let Some(&(_, _, new_off)) = new_offsets
+                        .iter()
+                        .find(|&&(r, old_off, _)| r == reg && old_off == offset)
+                    {
                         if new_off != offset {
                             let reg_name = reg_id_to_name_q(reg);
                             let new_line = format!("    movq {}(%rbp), {}", new_off, reg_name);
@@ -306,10 +322,22 @@ pub(super) fn compact_frame(store: &mut LineStore, infos: &mut [LineInfo]) {
 /// Convert a register family ID to its 64-bit name with % prefix.
 fn reg_id_to_name_q(reg: RegId) -> &'static str {
     match reg {
-        0 => "%rax", 1 => "%rcx", 2 => "%rdx", 3 => "%rbx",
-        4 => "%rsp", 5 => "%rbp", 6 => "%rsi", 7 => "%rdi",
-        8 => "%r8",  9 => "%r9",  10 => "%r10", 11 => "%r11",
-        12 => "%r12", 13 => "%r13", 14 => "%r14", 15 => "%r15",
+        0 => "%rax",
+        1 => "%rcx",
+        2 => "%rdx",
+        3 => "%rbx",
+        4 => "%rsp",
+        5 => "%rbp",
+        6 => "%rsi",
+        7 => "%rdi",
+        8 => "%r8",
+        9 => "%r9",
+        10 => "%r10",
+        11 => "%r11",
+        12 => "%r12",
+        13 => "%r13",
+        14 => "%r14",
+        15 => "%r15",
         _ => "%rax",
     }
 }

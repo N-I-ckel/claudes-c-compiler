@@ -1,15 +1,25 @@
 //! I686Codegen: comparison operations (float, int, fused branches, select).
 
-use crate::ir::reexports::{IrCmpOp, Operand, Value};
+use super::emit::I686Codegen;
+use crate::backend::traits::ArchCodegen;
 use crate::common::types::IrType;
 use crate::emit;
-use crate::backend::traits::ArchCodegen;
-use super::emit::I686Codegen;
+use crate::ir::reexports::{IrCmpOp, Operand, Value};
 
 impl I686Codegen {
-    pub(super) fn emit_float_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_float_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         if ty == IrType::F64 {
-            let swap = matches!(op, IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule);
+            let swap = matches!(
+                op,
+                IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule
+            );
             let (first, second) = if swap { (lhs, rhs) } else { (rhs, lhs) };
             self.emit_f64_load_to_x87(first);
             self.emit_f64_load_to_x87(second);
@@ -40,8 +50,15 @@ impl I686Codegen {
             return;
         }
         // F32: Use SSE for float comparisons
-        let swap_operands = matches!(op, IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule);
-        let (first, second) = if swap_operands { (rhs, lhs) } else { (lhs, rhs) };
+        let swap_operands = matches!(
+            op,
+            IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule
+        );
+        let (first, second) = if swap_operands {
+            (rhs, lhs)
+        } else {
+            (lhs, rhs)
+        };
 
         self.operand_to_eax(first);
         self.state.emit("    movd %eax, %xmm0");
@@ -72,8 +89,17 @@ impl I686Codegen {
         self.store_eax_to(dest);
     }
 
-    pub(super) fn emit_f128_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand) {
-        let swap = matches!(op, IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule);
+    pub(super) fn emit_f128_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) {
+        let swap = matches!(
+            op,
+            IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule
+        );
         let (first, second) = if swap { (lhs, rhs) } else { (rhs, lhs) };
         self.emit_f128_load_to_x87(first);
         self.emit_f128_load_to_x87(second);
@@ -103,7 +129,14 @@ impl I686Codegen {
         self.store_eax_to(dest);
     }
 
-    pub(super) fn emit_int_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand, _ty: IrType) {
+    pub(super) fn emit_int_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        _ty: IrType,
+    ) {
         self.operand_to_eax(lhs);
         self.operand_to_ecx(rhs);
         self.state.emit("    cmpl %ecx, %eax");
@@ -140,8 +173,8 @@ impl I686Codegen {
         self.state.emit("    cmpl %ecx, %eax");
 
         let jcc = match op {
-            IrCmpOp::Eq  => "je",
-            IrCmpOp::Ne  => "jne",
+            IrCmpOp::Eq => "je",
+            IrCmpOp::Ne => "jne",
             IrCmpOp::Slt => "jl",
             IrCmpOp::Sle => "jle",
             IrCmpOp::Sgt => "jg",
@@ -156,7 +189,14 @@ impl I686Codegen {
         self.state.reg_cache.invalidate_all();
     }
 
-    pub(super) fn emit_select_impl(&mut self, dest: &Value, cond: &Operand, true_val: &Operand, false_val: &Operand, ty: IrType) {
+    pub(super) fn emit_select_impl(
+        &mut self,
+        dest: &Value,
+        cond: &Operand,
+        true_val: &Operand,
+        false_val: &Operand,
+        ty: IrType,
+    ) {
         use crate::ir::reexports::IrConst;
         // Constant-fold wide conditions at compile time
         match cond {

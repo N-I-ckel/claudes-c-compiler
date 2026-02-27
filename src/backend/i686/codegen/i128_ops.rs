@@ -3,12 +3,12 @@
 //! On i686, "i128" operations actually operate on 64-bit values using eax:edx pairs.
 //! This module also contains the i64 bit-manipulation helpers.
 
-use crate::ir::reexports::{IrConst, IrCmpOp, Operand, Value};
-use crate::common::types::IrType;
+use super::emit::I686Codegen;
 use crate::backend::state::StackSlot;
 use crate::backend::traits::ArchCodegen;
+use crate::common::types::IrType;
 use crate::emit;
-use super::emit::I686Codegen;
+use crate::ir::reexports::{IrCmpOp, IrConst, Operand, Value};
 
 impl I686Codegen {
     pub(super) fn emit_sign_extend_acc_high_impl(&mut self) {
@@ -56,7 +56,9 @@ impl I686Codegen {
                 self.state.emit("    xorl %eax, %eax");
                 self.state.emit("    xorl %edx, %edx");
             }
-            Operand::Const(c) if matches!(c, IrConst::I8(_) | IrConst::I16(_) | IrConst::I32(_)) => {
+            Operand::Const(c)
+                if matches!(c, IrConst::I8(_) | IrConst::I16(_) | IrConst::I32(_)) =>
+            {
                 if let Some(ext) = c.to_i64() {
                     let low = (ext & 0xFFFFFFFF) as i32;
                     let high = ((ext >> 32) & 0xFFFFFFFF) as i32;
@@ -121,7 +123,12 @@ impl I686Codegen {
         self.state.emit("    notl %edx");
     }
 
-    pub(super) fn emit_i128_to_float_call_impl(&mut self, src: &Operand, from_signed: bool, to_ty: IrType) {
+    pub(super) fn emit_i128_to_float_call_impl(
+        &mut self,
+        src: &Operand,
+        from_signed: bool,
+        to_ty: IrType,
+    ) {
         self.emit_load_acc_pair(src);
         if from_signed {
             self.state.emit("    pushl %edx");
@@ -171,7 +178,12 @@ impl I686Codegen {
         }
     }
 
-    pub(super) fn emit_float_to_i128_call_impl(&mut self, src: &Operand, _to_signed: bool, _from_ty: IrType) {
+    pub(super) fn emit_float_to_i128_call_impl(
+        &mut self,
+        src: &Operand,
+        _to_signed: bool,
+        _from_ty: IrType,
+    ) {
         // TODO: F64 should use fldl instead of flds, and unsigned conversion
         // may need different handling for values exceeding i64 range.
         self.operand_to_eax(src);
@@ -289,7 +301,12 @@ impl I686Codegen {
         emit!(self.state, "{}:", done_label);
     }
 
-    pub(super) fn emit_i128_divrem_call_impl(&mut self, func_name: &str, lhs: &Operand, rhs: &Operand) {
+    pub(super) fn emit_i128_divrem_call_impl(
+        &mut self,
+        func_name: &str,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) {
         let di_func = match func_name {
             "__divti3" => "__divdi3",
             "__udivti3" => "__udivdi3",
@@ -322,7 +339,9 @@ impl I686Codegen {
     }
 
     pub(super) fn emit_i128_shl_const_impl(&mut self, amount: u32) {
-        if amount == 0 { return; }
+        if amount == 0 {
+            return;
+        }
         if amount >= 64 {
             self.state.emit("    xorl %eax, %eax");
             self.state.emit("    xorl %edx, %edx");
@@ -339,7 +358,9 @@ impl I686Codegen {
     }
 
     pub(super) fn emit_i128_lshr_const_impl(&mut self, amount: u32) {
-        if amount == 0 { return; }
+        if amount == 0 {
+            return;
+        }
         if amount >= 64 {
             self.state.emit("    xorl %eax, %eax");
             self.state.emit("    xorl %edx, %edx");
@@ -356,7 +377,9 @@ impl I686Codegen {
     }
 
     pub(super) fn emit_i128_ashr_const_impl(&mut self, amount: u32) {
-        if amount == 0 { return; }
+        if amount == 0 {
+            return;
+        }
         if amount >= 64 {
             self.state.emit("    sarl $31, %edx");
             self.state.emit("    movl %edx, %eax");
@@ -387,7 +410,10 @@ impl I686Codegen {
     }
 
     pub(super) fn emit_i128_cmp_ordered_impl(&mut self, op: IrCmpOp) {
-        let is_signed = matches!(op, IrCmpOp::Slt | IrCmpOp::Sle | IrCmpOp::Sgt | IrCmpOp::Sge);
+        let is_signed = matches!(
+            op,
+            IrCmpOp::Slt | IrCmpOp::Sle | IrCmpOp::Sgt | IrCmpOp::Sge
+        );
 
         if is_signed {
             let label_id = self.state.next_label_id();
@@ -446,5 +472,4 @@ impl I686Codegen {
         self.state.reg_cache.invalidate_acc();
         self.store_eax_to(dest);
     }
-
 }

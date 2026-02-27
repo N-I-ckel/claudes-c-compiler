@@ -17,12 +17,12 @@
 
 #[allow(dead_code)]
 pub mod elf;
-pub mod types;
-mod input;
-mod plt_got;
-mod link;
 mod emit_exec;
 mod emit_shared;
+mod input;
+mod link;
+mod plt_got;
+pub mod types;
 
 #[cfg(not(feature = "gcc_linker"))]
 pub use link::link_builtin;

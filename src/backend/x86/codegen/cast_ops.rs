@@ -1,16 +1,22 @@
 //! X86Codegen: cast operations.
 
-use crate::ir::reexports::{IrConst, Operand, Value};
-use crate::common::types::IrType;
-use crate::backend::generation::is_i128_type;
 use super::emit::X86Codegen;
+use crate::backend::generation::is_i128_type;
+use crate::common::types::IrType;
+use crate::ir::reexports::{IrConst, Operand, Value};
 
 impl X86Codegen {
     pub(super) fn emit_cast_instrs_impl(&mut self, from_ty: IrType, to_ty: IrType) {
         self.emit_cast_instrs_x86(from_ty, to_ty);
     }
 
-    pub(super) fn emit_cast_impl(&mut self, dest: &Value, src: &Operand, from_ty: IrType, to_ty: IrType) {
+    pub(super) fn emit_cast_impl(
+        &mut self,
+        dest: &Value,
+        src: &Operand,
+        from_ty: IrType,
+        to_ty: IrType,
+    ) {
         // Intercept casts TO F128: produce full 80-bit x87 value in dest slot.
         if to_ty == IrType::F128 && from_ty != IrType::F128 && !is_i128_type(from_ty) {
             if let Some(dest_slot) = self.state.get_slot(dest.0) {
@@ -55,9 +61,15 @@ impl X86Codegen {
                     self.state.emit("    fildq (%rsp)");
                     self.state.emit("    addq $8, %rsp");
                     self.state.emit("    subq $16, %rsp");
-                    self.state.out.emit_instr_imm_reg("    movabsq", -9223372036854775808i64, "rax");
+                    self.state.out.emit_instr_imm_reg(
+                        "    movabsq",
+                        -9223372036854775808i64,
+                        "rax",
+                    );
                     self.state.emit("    movq %rax, (%rsp)");
-                    self.state.out.emit_instr_imm_reg("    movq", 0x403Fi64, "rax");
+                    self.state
+                        .out
+                        .emit_instr_imm_reg("    movq", 0x403Fi64, "rax");
                     self.state.emit("    movq %rax, 8(%rsp)");
                     self.state.emit("    fldt (%rsp)");
                     self.state.emit("    addq $16, %rsp");
@@ -118,9 +130,13 @@ impl X86Codegen {
                 self.state.emit("    subq $16, %rsp");
                 let lo = u64::from_le_bytes(x87[0..8].try_into().unwrap());
                 let hi = u16::from_le_bytes(x87[8..10].try_into().unwrap());
-                self.state.out.emit_instr_imm_reg("    movabsq", lo as i64, "rax");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    movabsq", lo as i64, "rax");
                 self.state.emit("    movq %rax, (%rsp)");
-                self.state.out.emit_instr_imm_reg("    movq", hi as i64, "rax");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    movq", hi as i64, "rax");
                 self.state.emit("    movq %rax, 8(%rsp)");
                 self.state.emit("    fldt (%rsp)");
                 self.state.emit("    addq $16, %rsp");

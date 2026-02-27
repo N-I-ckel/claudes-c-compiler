@@ -33,29 +33,26 @@
 //! - `filter_available_regs`: callee-saved register filtering
 //! - `find_param_alloca`: parameter alloca lookup
 
-mod analysis;
 mod alloca_coalescing;
+mod analysis;
 mod copy_coalescing;
-mod slot_assignment;
 mod inline_asm;
 mod regalloc_helpers;
+mod slot_assignment;
 
 // Re-export submodule public APIs at the stack_layout:: level
 pub use inline_asm::{
-    collect_inline_asm_callee_saved,
+    collect_inline_asm_callee_saved, collect_inline_asm_callee_saved_with_generic,
     collect_inline_asm_callee_saved_with_overflow,
-    collect_inline_asm_callee_saved_with_generic,
 };
 pub use regalloc_helpers::{
-    run_regalloc_and_merge_clobbers,
-    filter_available_regs,
-    find_param_alloca,
+    filter_available_regs, find_param_alloca, run_regalloc_and_merge_clobbers,
 };
 
-use crate::ir::reexports::{IrFunction, Instruction};
-use crate::common::types::IrType;
-use crate::common::fx_hash::{FxHashMap, FxHashSet};
 use super::regalloc::PhysReg;
+use crate::common::fx_hash::{FxHashMap, FxHashSet};
+use crate::common::types::IrType;
+use crate::ir::reexports::{Instruction, IrFunction};
 
 use alloca_coalescing::CoalescableAllocas;
 
@@ -136,7 +133,13 @@ pub fn calculate_stack_space_common(
 
     // Phase 1: Build analysis context (use-blocks, def-blocks, used values,
     //          dead param allocas, alloca coalescability, copy aliases).
-    let ctx = build_layout_context(func, coalesce, reg_assigned, callee_saved_regs, lhs_first_binop);
+    let ctx = build_layout_context(
+        func,
+        coalesce,
+        reg_assigned,
+        callee_saved_regs,
+        lhs_first_binop,
+    );
 
     // Tell CodegenState which values are register-assigned so that
     // resolve_slot_addr can return a dummy Indirect slot for them.
@@ -151,27 +154,49 @@ pub fn calculate_stack_space_common(
     let mut max_block_local_space: i64 = 0;
 
     slot_assignment::classify_instructions(
-        state, func, &ctx, &assign_slot, reg_assigned,
-        &mut non_local_space, &mut deferred_slots, &mut multi_block_values,
-        &mut block_local_values, &mut block_space, &mut max_block_local_space,
+        state,
+        func,
+        &ctx,
+        &assign_slot,
+        reg_assigned,
+        &mut non_local_space,
+        &mut deferred_slots,
+        &mut multi_block_values,
+        &mut block_local_values,
+        &mut block_space,
+        &mut max_block_local_space,
     );
 
     // Phase 3: Tier 3 — block-local greedy slot reuse.
     slot_assignment::assign_tier3_block_local_slots(
-        func, &ctx, coalesce,
-        &block_local_values, &mut deferred_slots,
-        &mut block_space, &mut max_block_local_space, &assign_slot,
+        func,
+        &ctx,
+        coalesce,
+        &block_local_values,
+        &mut deferred_slots,
+        &mut block_space,
+        &mut max_block_local_space,
+        &assign_slot,
     );
 
     // Phase 4: Tier 2 — liveness-based packing for multi-block values.
     slot_assignment::assign_tier2_liveness_packed_slots(
-        state, coalesce, cached_liveness, func,
-        &multi_block_values, &mut non_local_space, &assign_slot,
+        state,
+        coalesce,
+        cached_liveness,
+        func,
+        &multi_block_values,
+        &mut non_local_space,
+        &assign_slot,
     );
 
     // Phase 5: Finalize deferred block-local slots by adding the global base offset.
     let total_space = slot_assignment::finalize_deferred_slots(
-        state, &deferred_slots, non_local_space, max_block_local_space, &assign_slot,
+        state,
+        &deferred_slots,
+        non_local_space,
+        max_block_local_space,
+        &assign_slot,
     );
 
     // Phase 6: Resolve copy aliases (propagate slots from root to aliased values).
@@ -224,18 +249,30 @@ fn build_layout_context(
     let used_values = analysis::collect_used_values(func);
 
     // Detect dead parameter allocas.
-    let dead_param_allocas = analysis::find_dead_param_allocas(func, &used_values, reg_assigned, callee_saved_regs);
+    let dead_param_allocas =
+        analysis::find_dead_param_allocas(func, &used_values, reg_assigned, callee_saved_regs);
 
     // Alloca coalescability analysis.
     let coalescable_allocas = if coalesce {
-        alloca_coalescing::compute_coalescable_allocas(func, &dead_param_allocas, &func.param_alloca_values)
+        alloca_coalescing::compute_coalescable_allocas(
+            func,
+            &dead_param_allocas,
+            &func.param_alloca_values,
+        )
     } else {
-        CoalescableAllocas { single_block: FxHashMap::default(), dead: FxHashSet::default() }
+        CoalescableAllocas {
+            single_block: FxHashMap::default(),
+            dead: FxHashSet::default(),
+        }
     };
 
     // Copy coalescing analysis.
     let copy_alias = copy_coalescing::build_copy_alias_map(
-        func, &def_block, &multi_def_values, reg_assigned, &use_blocks_map,
+        func,
+        &def_block,
+        &multi_def_values,
+        reg_assigned,
+        &use_blocks_map,
     );
 
     // Immediately-consumed value analysis: identify values that can skip stack slots.
@@ -267,15 +304,23 @@ fn build_layout_context(
     // forcing the pointer to Tier 2 (multi-block) when the dest crosses blocks.
     if coalesce {
         // Collect alloca value IDs to distinguish direct vs. indirect sources.
-        let alloca_set: FxHashSet<u32> = func.blocks.iter()
+        let alloca_set: FxHashSet<u32> = func
+            .blocks
+            .iter()
             .flat_map(|b| b.instructions.iter())
             .filter_map(|inst| {
-                if let Instruction::Alloca { dest, .. } = inst { Some(dest.0) } else { None }
+                if let Instruction::Alloca { dest, .. } = inst {
+                    Some(dest.0)
+                } else {
+                    None
+                }
             })
             .collect();
 
         // Collect (ptr_id, dest_id) pairs for F128 loads from non-alloca pointers.
-        let f128_loads: Vec<(u32, u32)> = func.blocks.iter()
+        let f128_loads: Vec<(u32, u32)> = func
+            .blocks
+            .iter()
             .flat_map(|b| b.instructions.iter())
             .filter_map(|inst| {
                 if let Instruction::Load { dest, ptr, ty, .. } = inst {

@@ -100,9 +100,9 @@ pub(super) fn eliminate_dead_reg_moves(store: &LineStore, infos: &mut [LineInfo]
                                 // variants of the dest register in the source operand.
                                 if let Some(comma_pos) = t.rfind(',') {
                                     let src_part = &t[..comma_pos];
-                                    REG_NAMES.iter().any(|row|
-                                        src_part.contains(row[dst_reg as usize])
-                                    )
+                                    REG_NAMES
+                                        .iter()
+                                        .any(|row| src_part.contains(row[dst_reg as usize]))
                                 } else {
                                     // Single-operand instruction that both reads
                                     // and writes (e.g., negq %rax) - conservative
@@ -172,14 +172,24 @@ pub(super) fn eliminate_dead_stores(store: &LineStore, infos: &mut [LineInfo]) -
                 break;
             }
 
-            if let LineKind::LoadRbp { offset: load_off, size: load_sz, .. } = infos[j].kind {
+            if let LineKind::LoadRbp {
+                offset: load_off,
+                size: load_sz,
+                ..
+            } = infos[j].kind
+            {
                 if ranges_overlap(store_offset, store_bytes, load_off, load_sz.byte_size()) {
                     slot_read = true;
                     break;
                 }
             }
 
-            if let LineKind::StoreRbp { offset: new_off, size: new_sz, .. } = infos[j].kind {
+            if let LineKind::StoreRbp {
+                offset: new_off,
+                size: new_sz,
+                ..
+            } = infos[j].kind
+            {
                 let new_bytes = new_sz.byte_size();
                 if new_off <= store_offset && new_off + new_bytes >= store_offset + store_bytes {
                     slot_overwritten = true;
@@ -233,7 +243,9 @@ pub(super) fn eliminate_dead_stores(store: &LineStore, infos: &mut [LineInfo]) -
                             break;
                         }
                     }
-                    if slot_read { break; }
+                    if slot_read {
+                        break;
+                    }
                 }
             }
         }
@@ -285,7 +297,9 @@ pub(super) fn eliminate_never_read_stores(store: &LineStore, infos: &mut [LineIn
         }
         let subq_line = infos[j].trimmed(store.get(j));
         let is_subq = if let Some(rest) = subq_line.strip_prefix("subq $") {
-            rest.strip_suffix(", %rsp").and_then(|v| v.parse::<i64>().ok()).is_some()
+            rest.strip_suffix(", %rsp")
+                .and_then(|v| v.parse::<i64>().ok())
+                .is_some()
         } else {
             false
         };
@@ -303,7 +317,12 @@ pub(super) fn eliminate_never_read_stores(store: &LineStore, infos: &mut [LineIn
                 callee_save_end += 1;
                 continue;
             }
-            if let LineKind::StoreRbp { reg, size: MoveSize::Q, .. } = infos[callee_save_end].kind {
+            if let LineKind::StoreRbp {
+                reg,
+                size: MoveSize::Q,
+                ..
+            } = infos[callee_save_end].kind
+            {
                 if is_callee_saved_reg(reg) {
                     callee_save_end += 1;
                     continue;
@@ -362,9 +381,15 @@ pub(super) fn eliminate_never_read_stores(store: &LineStore, infos: &mut [LineIn
                         }
                     }
                 }
-                LineKind::Nop | LineKind::Empty | LineKind::SelfMove
-                | LineKind::Label | LineKind::Jmp | LineKind::CondJmp
-                | LineKind::JmpIndirect | LineKind::Ret | LineKind::Directive => {}
+                LineKind::Nop
+                | LineKind::Empty
+                | LineKind::SelfMove
+                | LineKind::Label
+                | LineKind::Jmp
+                | LineKind::CondJmp
+                | LineKind::JmpIndirect
+                | LineKind::Ret
+                | LineKind::Directive => {}
                 _ => {
                     let line = infos[k].trimmed(store.get(k));
                     let rbp_off = parse_rbp_offset(line);
@@ -390,9 +415,9 @@ pub(super) fn eliminate_never_read_stores(store: &LineStore, infos: &mut [LineIn
             }
             if let LineKind::StoreRbp { offset, size, .. } = infos[k].kind {
                 let store_bytes = size.byte_size();
-                let is_read = read_ranges.iter().any(|&(r_off, r_sz)| {
-                    ranges_overlap(offset, store_bytes, r_off, r_sz)
-                });
+                let is_read = read_ranges
+                    .iter()
+                    .any(|&(r_off, r_sz)| ranges_overlap(offset, store_bytes, r_off, r_sz));
                 if !is_read {
                     mark_nop(&mut infos[k]);
                 }

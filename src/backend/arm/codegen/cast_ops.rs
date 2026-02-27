@@ -1,9 +1,9 @@
 //! ArmCodegen: cast operations.
 
-use crate::ir::reexports::{Operand, Value};
-use crate::common::types::IrType;
-use crate::backend::cast::{CastKind, classify_cast};
 use super::emit::ArmCodegen;
+use crate::backend::cast::{classify_cast, CastKind};
+use crate::common::types::IrType;
+use crate::ir::reexports::{Operand, Value};
 
 impl ArmCodegen {
     pub(super) fn emit_cast_instrs_impl(&mut self, from_ty: IrType, to_ty: IrType) {
@@ -80,14 +80,12 @@ impl ArmCodegen {
                 }
             }
 
-            CastKind::SignedToUnsignedSameSize { to_ty } => {
-                match to_ty {
-                    IrType::U8 => self.state.emit("    and x0, x0, #0xff"),
-                    IrType::U16 => self.state.emit("    and x0, x0, #0xffff"),
-                    IrType::U32 => self.state.emit("    mov w0, w0"),
-                    _ => {}
-                }
-            }
+            CastKind::SignedToUnsignedSameSize { to_ty } => match to_ty {
+                IrType::U8 => self.state.emit("    and x0, x0, #0xff"),
+                IrType::U16 => self.state.emit("    and x0, x0, #0xffff"),
+                IrType::U32 => self.state.emit("    mov w0, w0"),
+                _ => {}
+            },
 
             CastKind::IntWiden { from_ty, .. } => {
                 if from_ty.is_unsigned() {
@@ -107,17 +105,15 @@ impl ArmCodegen {
                 }
             }
 
-            CastKind::IntNarrow { to_ty } => {
-                match to_ty {
-                    IrType::I8 => self.state.emit("    sxtb x0, w0"),
-                    IrType::U8 => self.state.emit("    and x0, x0, #0xff"),
-                    IrType::I16 => self.state.emit("    sxth x0, w0"),
-                    IrType::U16 => self.state.emit("    and x0, x0, #0xffff"),
-                    IrType::I32 => self.state.emit("    sxtw x0, w0"),
-                    IrType::U32 => self.state.emit("    mov w0, w0"),
-                    _ => {}
-                }
-            }
+            CastKind::IntNarrow { to_ty } => match to_ty {
+                IrType::I8 => self.state.emit("    sxtb x0, w0"),
+                IrType::U8 => self.state.emit("    and x0, x0, #0xff"),
+                IrType::I16 => self.state.emit("    sxth x0, w0"),
+                IrType::U16 => self.state.emit("    and x0, x0, #0xffff"),
+                IrType::I32 => self.state.emit("    sxtw x0, w0"),
+                IrType::U32 => self.state.emit("    mov w0, w0"),
+                _ => {}
+            },
 
             CastKind::SignedToF128 { .. }
             | CastKind::UnsignedToF128 { .. }
@@ -130,7 +126,13 @@ impl ArmCodegen {
         }
     }
 
-    pub(super) fn emit_cast_impl(&mut self, dest: &Value, src: &Operand, from_ty: IrType, to_ty: IrType) {
+    pub(super) fn emit_cast_impl(
+        &mut self,
+        dest: &Value,
+        src: &Operand,
+        from_ty: IrType,
+        to_ty: IrType,
+    ) {
         if crate::backend::f128_softfloat::f128_emit_cast(self, dest, src, from_ty, to_ty) {
             return;
         }

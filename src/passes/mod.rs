@@ -34,12 +34,7 @@ use crate::ir::reexports::{IrFunction, IrModule};
 /// `visit` indicates which functions to process in this iteration.
 /// `changed` accumulates which functions were modified by any pass
 /// (so the next iteration knows what to re-visit).
-fn run_on_visited<F>(
-    module: &mut IrModule,
-    visit: &[bool],
-    changed: &mut [bool],
-    mut f: F,
-) -> usize
+fn run_on_visited<F>(module: &mut IrModule, visit: &[bool], changed: &mut [bool], mut f: F) -> usize
 where
     F: FnMut(&mut IrFunction) -> usize,
 {
@@ -102,7 +97,9 @@ fn run_gvn_licm_ivsr_shared(
                 let n = gvn::run_gvn_function(func);
                 if n > 0 {
                     gvn_total += n;
-                    if i < changed.len() { changed[i] = true; }
+                    if i < changed.len() {
+                        changed[i] = true;
+                    }
                 }
             }
             // LICM and IVSR need loops (>= 2 blocks), so skip.
@@ -114,28 +111,52 @@ fn run_gvn_licm_ivsr_shared(
 
         // Run GVN with shared analysis.
         if run_gvn {
-            let t0 = if time_passes { Some(std::time::Instant::now()) } else { None };
+            let t0 = if time_passes {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
             let n = gvn::run_gvn_with_analysis(func, &cfg);
             if let Some(t0) = t0 {
-                eprintln!("[PASS] iter={} gvn (func {}): {:.4}s ({} changes)", iter, func.name, t0.elapsed().as_secs_f64(), n);
+                eprintln!(
+                    "[PASS] iter={} gvn (func {}): {:.4}s ({} changes)",
+                    iter,
+                    func.name,
+                    t0.elapsed().as_secs_f64(),
+                    n
+                );
             }
             if n > 0 {
                 gvn_total += n;
-                if i < changed.len() { changed[i] = true; }
+                if i < changed.len() {
+                    changed[i] = true;
+                }
             }
         }
 
         // Run LICM with shared analysis.
         // GVN does not modify the CFG (only replaces operands), so analysis is still valid.
         if run_licm {
-            let t0 = if time_passes { Some(std::time::Instant::now()) } else { None };
+            let t0 = if time_passes {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
             let n = licm::licm_with_analysis(func, &cfg);
             if let Some(t0) = t0 {
-                eprintln!("[PASS] iter={} licm (func {}): {:.4}s ({} changes)", iter, func.name, t0.elapsed().as_secs_f64(), n);
+                eprintln!(
+                    "[PASS] iter={} licm (func {}): {:.4}s ({} changes)",
+                    iter,
+                    func.name,
+                    t0.elapsed().as_secs_f64(),
+                    n
+                );
             }
             if n > 0 {
                 licm_total += n;
-                if i < changed.len() { changed[i] = true; }
+                if i < changed.len() {
+                    changed[i] = true;
+                }
             }
         }
 
@@ -143,14 +164,26 @@ fn run_gvn_licm_ivsr_shared(
         // LICM hoists instructions to preheaders but does not add/remove blocks,
         // so CFG analysis is still valid.
         if run_ivsr {
-            let t0 = if time_passes { Some(std::time::Instant::now()) } else { None };
+            let t0 = if time_passes {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
             let n = iv_strength_reduce::ivsr_with_analysis(func, &cfg);
             if let Some(t0) = t0 {
-                eprintln!("[PASS] iter={} iv_strength_reduce (func {}): {:.4}s ({} changes)", iter, func.name, t0.elapsed().as_secs_f64(), n);
+                eprintln!(
+                    "[PASS] iter={} iv_strength_reduce (func {}): {:.4}s ({} changes)",
+                    iter,
+                    func.name,
+                    t0.elapsed().as_secs_f64(),
+                    n
+                );
             }
             if n > 0 {
                 ivsr_total += n;
-                if i < changed.len() { changed[i] = true; }
+                if i < changed.len() {
+                    changed[i] = true;
+                }
             }
         }
     }
@@ -308,7 +341,10 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
                     let t0 = std::time::Instant::now();
                     let n = $body;
                     let elapsed = t0.elapsed().as_secs_f64();
-                    eprintln!("[PASS] iter={} {}: {:.4}s ({} changes)", iter, $name, elapsed, n);
+                    eprintln!(
+                        "[PASS] iter={} {}: {:.4}s ({} changes)",
+                        iter, $name, elapsed, n
+                    );
                     n
                 } else {
                     $body
@@ -339,7 +375,10 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // Phase 1: CFG simplification
         // Upstream: constfold (constant branches), dce (empty blocks)
         if !dis.cfg && should_run!(0, 4, 9) {
-            let n = timed_pass!("cfg_simplify1", run_on_visited(module, &dirty, &mut changed, cfg_simplify::run_function));
+            let n = timed_pass!(
+                "cfg_simplify1",
+                run_on_visited(module, &dirty, &mut changed, cfg_simplify::run_function)
+            );
             cur_pass_changes[0] = n;
             total_changes += n;
             total_changes_excl_dce += n;
@@ -348,7 +387,10 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // Phase 2: Copy propagation
         // Upstream: cfg_simplify (simpler CFG), gvn (eliminated exprs), licm (hoisted code), if_convert
         if !dis.copyprop && should_run!(1, 0, 5, 6, 7) {
-            let n = timed_pass!("copy_prop1", run_on_visited(module, &dirty, &mut changed, copy_prop::propagate_copies));
+            let n = timed_pass!(
+                "copy_prop1",
+                run_on_visited(module, &dirty, &mut changed, copy_prop::propagate_copies)
+            );
             cur_pass_changes[1] = n;
             total_changes += n;
             total_changes_excl_dce += n;
@@ -366,7 +408,15 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // TODO: Re-enable once i686 has proper 64-bit arithmetic support, or implement
         // a 32-bit-aware variant that uses single-operand imull for mulhi.
         if iter == 0 && !disabled.contains("divconst") && !target.is_32bit() {
-            let n = timed_pass!("div_by_const", run_on_visited(module, &dirty, &mut changed, div_by_const::div_by_const_function));
+            let n = timed_pass!(
+                "div_by_const",
+                run_on_visited(
+                    module,
+                    &dirty,
+                    &mut changed,
+                    div_by_const::div_by_const_function
+                )
+            );
             total_changes += n;
             total_changes_excl_dce += n;
         }
@@ -374,7 +424,10 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // Phase 2b: Integer narrowing
         // Upstream: copy_prop (propagated values expose narrowing)
         if !dis.narrow && should_run!(2, 1) {
-            let n = timed_pass!("narrow", run_on_visited(module, &dirty, &mut changed, narrow::narrow_function));
+            let n = timed_pass!(
+                "narrow",
+                run_on_visited(module, &dirty, &mut changed, narrow::narrow_function)
+            );
             cur_pass_changes[2] = n;
             total_changes += n;
             total_changes_excl_dce += n;
@@ -383,7 +436,10 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // Phase 3: Algebraic simplification
         // Upstream: copy_prop (propagated values), narrow (smaller types)
         if !dis.simplify && should_run!(3, 1, 2) {
-            let n = timed_pass!("simplify", run_on_visited(module, &dirty, &mut changed, simplify::simplify_function));
+            let n = timed_pass!(
+                "simplify",
+                run_on_visited(module, &dirty, &mut changed, simplify::simplify_function)
+            );
             cur_pass_changes[3] = n;
             total_changes += n;
             total_changes_excl_dce += n;
@@ -394,7 +450,10 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         //           if_convert (creates Select that constfold can fold with known-constant cond),
         //           copy_prop2 (propagates constants into Select/Cmp operands after if_convert)
         if !dis.constfold && should_run!(4, 1, 2, 3, 7, 8) {
-            let n = timed_pass!("constfold", run_on_visited(module, &dirty, &mut changed, constant_fold::fold_function));
+            let n = timed_pass!(
+                "constfold",
+                run_on_visited(module, &dirty, &mut changed, constant_fold::fold_function)
+            );
             cur_pass_changes[4] = n;
             total_changes += n;
             total_changes_excl_dce += n;
@@ -413,9 +472,14 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
 
             if run_gvn || run_licm || run_ivsr {
                 let (gvn_n, licm_n, ivsr_n) = run_gvn_licm_ivsr_shared(
-                    module, &dirty, &mut changed,
-                    run_gvn, run_licm, run_ivsr,
-                    time_passes, iter,
+                    module,
+                    &dirty,
+                    &mut changed,
+                    run_gvn,
+                    run_licm,
+                    run_ivsr,
+                    time_passes,
+                    iter,
                 );
                 cur_pass_changes[5] = gvn_n;
                 total_changes += gvn_n;
@@ -431,7 +495,15 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // Phase 7: If-conversion
         // Upstream: cfg_simplify (simpler CFG), constfold (simplified conditions)
         if !dis.ifconv && should_run!(7, 0, 4) {
-            let n = timed_pass!("if_convert", run_on_visited(module, &dirty, &mut changed, if_convert::if_convert_function));
+            let n = timed_pass!(
+                "if_convert",
+                run_on_visited(
+                    module,
+                    &dirty,
+                    &mut changed,
+                    if_convert::if_convert_function
+                )
+            );
             cur_pass_changes[7] = n;
             total_changes += n;
             total_changes_excl_dce += n;
@@ -442,8 +514,13 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         //           gvn (produced copies), licm (hoisted code), if_convert (select values)
         // Note: simplify and constfold run earlier in this iteration, so we check
         // cur_pass_changes for them (not just prev_pass_changes via should_run!).
-        if !dis.copyprop && (should_run!(8, 5, 6, 7) || cur_pass_changes[3] > 0 || cur_pass_changes[4] > 0) {
-            let n = timed_pass!("copy_prop2", run_on_visited(module, &dirty, &mut changed, copy_prop::propagate_copies));
+        if !dis.copyprop
+            && (should_run!(8, 5, 6, 7) || cur_pass_changes[3] > 0 || cur_pass_changes[4] > 0)
+        {
+            let n = timed_pass!(
+                "copy_prop2",
+                run_on_visited(module, &dirty, &mut changed, copy_prop::propagate_copies)
+            );
             cur_pass_changes[8] = n;
             total_changes += n;
             total_changes_excl_dce += n;
@@ -461,7 +538,10 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // (e.g., kernel's cpucap_is_possible switch folding through inlined
         // system_supports_sme -> alternative_has_cap_unlikely -> cpucap_is_possible).
         if !dis.dce && should_run!(9, 5, 6, 7, 8) {
-            let n = timed_pass!("dce", run_on_visited(module, &dirty, &mut changed, dce::eliminate_dead_code));
+            let n = timed_pass!(
+                "dce",
+                run_on_visited(module, &dirty, &mut changed, dce::eliminate_dead_code)
+            );
             cur_pass_changes[9] = n;
             total_changes += n;
             // Intentionally NOT added to total_changes_excl_dce
@@ -470,7 +550,10 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // Phase 10: CFG simplification again
         // Upstream: constfold (constant branches), dce (dead blocks), if_convert
         if !dis.cfg && should_run!(10, 4, 7, 9) {
-            let n = timed_pass!("cfg_simplify2", run_on_visited(module, &dirty, &mut changed, cfg_simplify::run_function));
+            let n = timed_pass!(
+                "cfg_simplify2",
+                run_on_visited(module, &dirty, &mut changed, cfg_simplify::run_function)
+            );
             cur_pass_changes[10] = n;
             total_changes += n;
             total_changes_excl_dce += n;
@@ -525,7 +608,9 @@ pub(crate) fn run_passes(module: &mut IrModule, _opt_level: u32, target: crate::
         // least 2 iterations to complete: iter0 for initial folding, iter1 for
         // propagating results through the control flow.
         const DIMINISHING_RETURNS_FACTOR: usize = 20; // 1/20 = 5% threshold
-        if iter > 1 && ipcp_changes == 0 && iter0_total_changes > 0
+        if iter > 1
+            && ipcp_changes == 0
+            && iter0_total_changes > 0
             && total_changes_excl_dce * DIMINISHING_RETURNS_FACTOR < iter0_total_changes
         {
             break;

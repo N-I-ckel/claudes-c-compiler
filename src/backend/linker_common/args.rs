@@ -48,10 +48,20 @@ pub fn parse_linker_args(user_args: &[String]) -> LinkerArgs {
         } else if arg == "-static" {
             result.is_static = true;
         } else if let Some(path) = arg.strip_prefix("-L") {
-            let p = if path.is_empty() && i + 1 < args.len() { i += 1; args[i] } else { path };
+            let p = if path.is_empty() && i + 1 < args.len() {
+                i += 1;
+                args[i]
+            } else {
+                path
+            };
             result.extra_lib_paths.push(p.to_string());
         } else if let Some(lib) = arg.strip_prefix("-l") {
-            let l = if lib.is_empty() && i + 1 < args.len() { i += 1; args[i] } else { lib };
+            let l = if lib.is_empty() && i + 1 < args.len() {
+                i += 1;
+                args[i]
+            } else {
+                lib
+            };
             result.libs_to_load.push(l.to_string());
         } else if let Some(wl_arg) = arg.strip_prefix("-Wl,") {
             let parts: Vec<&str> = wl_arg.split(',').collect();

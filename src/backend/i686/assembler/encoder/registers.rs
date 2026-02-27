@@ -104,7 +104,8 @@ pub(crate) fn parse_st_num(name: &str) -> Result<u8, String> {
         return Ok(0);
     }
     if name.starts_with("st(") && name.ends_with(')') {
-        let n: u8 = name[3..name.len()-1].parse()
+        let n: u8 = name[3..name.len() - 1]
+            .parse()
             .map_err(|_| format!("bad st register: {}", name))?;
         if n > 7 {
             return Err(format!("st register out of range: {}", name));

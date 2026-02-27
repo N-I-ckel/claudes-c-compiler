@@ -3,10 +3,10 @@
 //! Shared utilities that eliminate duplicated regalloc setup boilerplate
 //! across all four backends (x86-64, i686, AArch64, RISC-V 64).
 
-use crate::ir::reexports::{Instruction, IrFunction, Value};
-use crate::common::types::IrType;
-use crate::common::fx_hash::{FxHashMap, FxHashSet};
 use super::super::regalloc::PhysReg;
+use crate::common::fx_hash::{FxHashMap, FxHashSet};
+use crate::common::types::IrType;
+use crate::ir::reexports::{Instruction, IrFunction, Value};
 
 // ── Register allocation helpers ───────────────────────────────────────────
 
@@ -28,8 +28,15 @@ pub fn run_regalloc_and_merge_clobbers(
     reg_assignments: &mut FxHashMap<u32, PhysReg>,
     used_callee_saved: &mut Vec<PhysReg>,
     allow_inline_asm_regalloc: bool,
-) -> (FxHashMap<u32, PhysReg>, Option<super::super::liveness::LivenessResult>) {
-    let config = super::super::regalloc::RegAllocConfig { available_regs, caller_saved_regs, allow_inline_asm_regalloc };
+) -> (
+    FxHashMap<u32, PhysReg>,
+    Option<super::super::liveness::LivenessResult>,
+) {
+    let config = super::super::regalloc::RegAllocConfig {
+        available_regs,
+        caller_saved_regs,
+        allow_inline_asm_regalloc,
+    };
     let alloc_result = super::super::regalloc::allocate_registers(func, &config);
     *reg_assignments = alloc_result.assignments;
     *used_callee_saved = alloc_result.used_regs;
@@ -51,10 +58,7 @@ pub fn run_regalloc_and_merge_clobbers(
 
 /// Filter a callee-saved register list by removing ASM-clobbered entries.
 /// Returns the filtered list suitable for passing to `run_regalloc_and_merge_clobbers`.
-pub fn filter_available_regs(
-    callee_saved: &[PhysReg],
-    asm_clobbered: &[PhysReg],
-) -> Vec<PhysReg> {
+pub fn filter_available_regs(callee_saved: &[PhysReg], asm_clobbered: &[PhysReg]) -> Vec<PhysReg> {
     let mut available = callee_saved.to_vec();
     if !asm_clobbered.is_empty() {
         let clobbered_set: FxHashSet<u8> = asm_clobbered.iter().map(|r| r.0).collect();
@@ -68,7 +72,9 @@ pub fn filter_available_regs(
 /// Find the nth alloca instruction in the entry block (used for parameter storage).
 pub fn find_param_alloca(func: &IrFunction, param_idx: usize) -> Option<(Value, IrType)> {
     func.blocks.first().and_then(|block| {
-        block.instructions.iter()
+        block
+            .instructions
+            .iter()
             .filter(|i| matches!(i, Instruction::Alloca { .. }))
             .nth(param_idx)
             .and_then(|inst| {

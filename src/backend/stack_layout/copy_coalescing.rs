@@ -6,19 +6,14 @@
 //! and consumed in adjacent instructions, allowing them to skip stack
 //! slot allocation entirely by staying in the accumulator register cache.
 
-use crate::ir::reexports::{
-    Instruction,
-    IrFunction,
-    Operand,
-    Terminator,
-};
-use crate::common::types::IrType;
-use crate::common::fx_hash::{FxHashMap, FxHashSet};
-use crate::backend::regalloc::PhysReg;
 use crate::backend::liveness::{
-    for_each_operand_in_instruction, for_each_value_use_in_instruction,
-    for_each_operand_in_terminator,
+    for_each_operand_in_instruction, for_each_operand_in_terminator,
+    for_each_value_use_in_instruction,
 };
+use crate::backend::regalloc::PhysReg;
+use crate::common::fx_hash::{FxHashMap, FxHashSet};
+use crate::common::types::IrType;
+use crate::ir::reexports::{Instruction, IrFunction, Operand, Terminator};
 
 /// Build the copy alias map: dest_id -> root_id for Copy instructions where
 /// dest and src can share the same stack slot.
@@ -57,7 +52,11 @@ pub(super) fn build_copy_alias_map(
     let mut raw_aliases: Vec<(u32, u32)> = Vec::new();
     for block in &func.blocks {
         for inst in &block.instructions {
-            if let Instruction::Copy { dest, src: Operand::Value(src_val) } = inst {
+            if let Instruction::Copy {
+                dest,
+                src: Operand::Value(src_val),
+            } = inst
+            {
                 let d = dest.0;
                 let s = src_val.0;
                 // Exclude multi-def values and register-assigned values.
@@ -96,7 +95,9 @@ pub(super) fn build_copy_alias_map(
         while let Some(&parent) = copy_alias.get(&root) {
             root = parent;
             depth += 1;
-            if depth > MAX_ALIAS_CHAIN_DEPTH { break; }
+            if depth > MAX_ALIAS_CHAIN_DEPTH {
+                break;
+            }
         }
         if root != dest_id {
             copy_alias.insert(dest_id, root);
@@ -104,15 +105,20 @@ pub(super) fn build_copy_alias_map(
     }
 
     // Remove aliases where root or dest is an alloca (alloca slots are special).
-    let alloca_ids: FxHashSet<u32> = func.blocks.iter()
+    let alloca_ids: FxHashSet<u32> = func
+        .blocks
+        .iter()
         .flat_map(|b| b.instructions.iter())
         .filter_map(|inst| {
-            if let Instruction::Alloca { dest, .. } = inst { Some(dest.0) } else { None }
+            if let Instruction::Alloca { dest, .. } = inst {
+                Some(dest.0)
+            } else {
+                None
+            }
         })
         .collect();
-    copy_alias.retain(|dest_id, root_id| {
-        !alloca_ids.contains(root_id) && !alloca_ids.contains(dest_id)
-    });
+    copy_alias
+        .retain(|dest_id, root_id| !alloca_ids.contains(root_id) && !alloca_ids.contains(dest_id));
 
     // Remove aliases for InlineAsm output pointer values. InlineAsm Phase 4 reads
     // output pointers from stack slots AFTER the asm executes; if aliased, the
@@ -149,7 +155,10 @@ pub(super) fn build_copy_alias_map(
 ///
 /// The codegen accumulator cache ensures correctness: store_rax_to sets the
 /// cache, and the next instruction's operand_to_rax finds V there.
-pub(super) fn compute_immediately_consumed(func: &IrFunction, lhs_first_binop: bool) -> FxHashSet<u32> {
+pub(super) fn compute_immediately_consumed(
+    func: &IrFunction,
+    lhs_first_binop: bool,
+) -> FxHashSet<u32> {
     let mut result = FxHashSet::default();
 
     // First pass: count uses per value (both Operand and Value-ref uses).
@@ -179,7 +188,11 @@ pub(super) fn compute_immediately_consumed(func: &IrFunction, lhs_first_binop: b
     let mut copy_alias_roots: FxHashSet<u32> = FxHashSet::default();
     for block in &func.blocks {
         for inst in &block.instructions {
-            if let Instruction::Copy { src: Operand::Value(v), .. } = inst {
+            if let Instruction::Copy {
+                src: Operand::Value(v),
+                ..
+            } = inst
+            {
                 copy_alias_roots.insert(v.0);
             }
         }
@@ -198,16 +211,26 @@ pub(super) fn compute_immediately_consumed(func: &IrFunction, lhs_first_binop: b
             // the accumulator cache still holds the result. Cache-invalidating
             // instructions (Call, Atomic*, DynAlloca, etc.) clear the cache
             // after store_rax_to, so the next instruction can't find the value.
-            if !is_acc_preserving_producer(inst) { continue; }
+            if !is_acc_preserving_producer(inst) {
+                continue;
+            }
             // Skip i128/f128 (special 16-byte handling uses emit_load_acc_pair /
             // emit_store_acc_pair which bypass the normal accumulator cache).
-            if involves_i128_or_f128(inst) { continue; }
+            if involves_i128_or_f128(inst) {
+                continue;
+            }
             // Skip if value has Value-ref uses (ptr/base in Store/Load/GEP).
-            if has_value_ref_use.contains(&dest.0) { continue; }
+            if has_value_ref_use.contains(&dest.0) {
+                continue;
+            }
             // Skip if value is a copy-alias root (other values share its slot).
-            if copy_alias_roots.contains(&dest.0) { continue; }
+            if copy_alias_roots.contains(&dest.0) {
+                continue;
+            }
             // Must have exactly one Operand use.
-            if operand_use_count.get(&dest.0).copied().unwrap_or(0) != 1 { continue; }
+            if operand_use_count.get(&dest.0).copied().unwrap_or(0) != 1 {
+                continue;
+            }
 
             // Check if the single use is in the immediately next instruction
             // or in the block terminator (if this is the last instruction).
@@ -236,16 +259,17 @@ pub(super) fn compute_immediately_consumed(func: &IrFunction, lhs_first_binop: b
 /// Cache-invalidating instructions (Call, Store, Atomic*, DynAlloca, InlineAsm,
 /// etc.) call invalidate_all() after execution, clearing the cache.
 fn is_acc_preserving_producer(inst: &Instruction) -> bool {
-    matches!(inst,
+    matches!(
+        inst,
         Instruction::Load { .. }
-        | Instruction::BinOp { .. }
-        | Instruction::UnaryOp { .. }
-        | Instruction::Cmp { .. }
-        | Instruction::Cast { .. }
-        | Instruction::GetElementPtr { .. }
-        | Instruction::GlobalAddr { .. }
-        | Instruction::Select { .. }
-        | Instruction::LabelAddr { .. }
+            | Instruction::BinOp { .. }
+            | Instruction::UnaryOp { .. }
+            | Instruction::Cmp { .. }
+            | Instruction::Cast { .. }
+            | Instruction::GetElementPtr { .. }
+            | Instruction::GlobalAddr { .. }
+            | Instruction::Select { .. }
+            | Instruction::LabelAddr { .. }
     )
 }
 
@@ -284,15 +308,33 @@ fn involves_i128_or_f128(inst: &Instruction) -> bool {
 fn is_safe_sole_consumer(inst: &Instruction, value_id: u32, lhs_first_binop: bool) -> bool {
     match inst {
         // Store: val is always loaded first via emit_load_operand (operand_to_rax)
-        Instruction::Store { val: Operand::Value(v), .. } => v.0 == value_id,
+        Instruction::Store {
+            val: Operand::Value(v),
+            ..
+        } => v.0 == value_id,
         // Single-operand instructions: loaded via operand_to_rax, no other operand
-        Instruction::Cast { src: Operand::Value(v), .. } => v.0 == value_id,
-        Instruction::UnaryOp { src: Operand::Value(v), .. } => v.0 == value_id,
-        Instruction::Copy { src: Operand::Value(v), .. } => v.0 == value_id,
+        Instruction::Cast {
+            src: Operand::Value(v),
+            ..
+        } => v.0 == value_id,
+        Instruction::UnaryOp {
+            src: Operand::Value(v),
+            ..
+        } => v.0 == value_id,
+        Instruction::Copy {
+            src: Operand::Value(v),
+            ..
+        } => v.0 == value_id,
         // BinOp: safe on architectures that always load lhs first (RISC-V)
-        Instruction::BinOp { lhs: Operand::Value(v), .. } if lhs_first_binop => v.0 == value_id,
+        Instruction::BinOp {
+            lhs: Operand::Value(v),
+            ..
+        } if lhs_first_binop => v.0 == value_id,
         // Cmp: safe on architectures that always load lhs first (RISC-V)
-        Instruction::Cmp { lhs: Operand::Value(v), .. } if lhs_first_binop => v.0 == value_id,
+        Instruction::Cmp {
+            lhs: Operand::Value(v),
+            ..
+        } if lhs_first_binop => v.0 == value_id,
         // All other instructions: not safe (GEP, Call, Select, etc.)
         _ => false,
     }
@@ -302,9 +344,18 @@ fn is_safe_sole_consumer(inst: &Instruction, value_id: u32, lhs_first_binop: boo
 fn is_sole_operand_of_terminator(term: &Terminator, value_id: u32) -> bool {
     match term {
         Terminator::Return(Some(Operand::Value(v))) => v.0 == value_id,
-        Terminator::CondBranch { cond: Operand::Value(v), .. } => v.0 == value_id,
-        Terminator::Switch { val: Operand::Value(v), .. } => v.0 == value_id,
-        Terminator::IndirectBranch { target: Operand::Value(v), .. } => v.0 == value_id,
+        Terminator::CondBranch {
+            cond: Operand::Value(v),
+            ..
+        } => v.0 == value_id,
+        Terminator::Switch {
+            val: Operand::Value(v),
+            ..
+        } => v.0 == value_id,
+        Terminator::IndirectBranch {
+            target: Operand::Value(v),
+            ..
+        } => v.0 == value_id,
         _ => false,
     }
 }

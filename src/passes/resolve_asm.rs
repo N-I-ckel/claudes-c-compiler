@@ -15,7 +15,7 @@
 //! so the backend can emit correct symbol references in inline assembly.
 
 use crate::common::fx_hash::FxHashMap;
-use crate::ir::reexports::{IrFunction, IrModule, Instruction, Operand, Value};
+use crate::ir::reexports::{Instruction, IrFunction, IrModule, Operand, Value};
 
 /// Resolve InlineAsm input symbols across all functions in the module.
 pub(crate) fn resolve_inline_asm_symbols(module: &mut IrModule) {
@@ -44,10 +44,18 @@ fn resolve_in_function(func: &mut IrFunction) {
                 Instruction::GlobalAddr { dest, name } => {
                     value_defs.insert(dest.0, DefInfo::GlobalAddr(name.clone()));
                 }
-                Instruction::GetElementPtr { dest, base, offset, .. } => {
+                Instruction::GetElementPtr {
+                    dest, base, offset, ..
+                } => {
                     value_defs.insert(dest.0, DefInfo::Gep(*base, *offset));
                 }
-                Instruction::BinOp { dest, op: crate::ir::reexports::IrBinOp::Add, lhs, rhs, .. } => {
+                Instruction::BinOp {
+                    dest,
+                    op: crate::ir::reexports::IrBinOp::Add,
+                    lhs,
+                    rhs,
+                    ..
+                } => {
                     value_defs.insert(dest.0, DefInfo::Add(*lhs, *rhs));
                 }
                 Instruction::Cast { dest, src, .. } => {
@@ -64,11 +72,20 @@ fn resolve_in_function(func: &mut IrFunction) {
     // Now scan InlineAsm instructions and try to resolve unresolved input_symbols.
     for block in &mut func.blocks {
         for inst in &mut block.instructions {
-            if let Instruction::InlineAsm { inputs, input_symbols, .. } = inst {
+            if let Instruction::InlineAsm {
+                inputs,
+                input_symbols,
+                ..
+            } = inst
+            {
                 for (i, (constraint, operand, _)) in inputs.iter().enumerate() {
                     // Only process "i" constraint inputs that don't have a symbol yet
-                    if i >= input_symbols.len() { break; }
-                    if input_symbols[i].is_some() { continue; }
+                    if i >= input_symbols.len() {
+                        break;
+                    }
+                    if input_symbols[i].is_some() {
+                        continue;
+                    }
                     // Only for immediate-only constraints
                     if !crate::backend::inline_asm::constraint_is_immediate_only(constraint) {
                         continue;
@@ -100,7 +117,11 @@ fn try_resolve_global_symbol(val: &Value, defs: &FxHashMap<u32, DefInfo>) -> Opt
 
 /// Recursively trace a Value back through its def chain to find
 /// GlobalAddr + constant offsets (from GEP, Add, Cast/Copy).
-fn try_resolve_global_with_offset(val: &Value, defs: &FxHashMap<u32, DefInfo>, accum_offset: i64) -> Option<(String, i64)> {
+fn try_resolve_global_with_offset(
+    val: &Value,
+    defs: &FxHashMap<u32, DefInfo>,
+    accum_offset: i64,
+) -> Option<(String, i64)> {
     let def = defs.get(&val.0)?;
     match def {
         DefInfo::GlobalAddr(name) => Some((name.clone(), accum_offset)),

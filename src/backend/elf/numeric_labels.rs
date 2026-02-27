@@ -12,10 +12,10 @@
 //! ARM and RISC-V use different parser types and don't have this pattern
 //! (ARM has no numeric labels; RISC-V has its own pre-pass).
 
-use std::collections::HashMap;
 use crate::backend::x86::assembler::parser::{
-    AsmItem, Instruction, Operand, MemoryOperand, Displacement, DataValue, ImmediateValue,
+    AsmItem, DataValue, Displacement, ImmediateValue, Instruction, MemoryOperand, Operand,
 };
+use std::collections::HashMap;
 
 /// Check if a string is a numeric local label (just digits, e.g., "1", "42").
 pub fn is_numeric_label(name: &str) -> bool {
@@ -82,9 +82,11 @@ pub fn resolve_numeric_labels(items: &[AsmItem]) -> Vec<AsmItem> {
                 result.push(item.clone());
             }
             AsmItem::Instruction(instr) => {
-                let new_ops: Vec<Operand> = instr.operands.iter().map(|op| {
-                    resolve_numeric_operand(op, i, &defs)
-                }).collect();
+                let new_ops: Vec<Operand> = instr
+                    .operands
+                    .iter()
+                    .map(|op| resolve_numeric_operand(op, i, &defs))
+                    .collect();
                 result.push(AsmItem::Instruction(Instruction {
                     prefix: instr.prefix.clone(),
                     mnemonic: instr.mnemonic.clone(),
@@ -136,7 +138,9 @@ fn resolve_numeric_operand(
             }
         }
         Operand::Memory(mem) => {
-            if let Some(new_disp) = resolve_numeric_displacement(&mem.displacement, current_idx, defs) {
+            if let Some(new_disp) =
+                resolve_numeric_displacement(&mem.displacement, current_idx, defs)
+            {
                 Operand::Memory(MemoryOperand {
                     segment: mem.segment.clone(),
                     displacement: new_disp,
@@ -149,8 +153,10 @@ fn resolve_numeric_operand(
             }
         }
         Operand::Immediate(ImmediateValue::SymbolDiff(lhs, rhs)) => {
-            let new_lhs = resolve_numeric_name(lhs, current_idx, defs).unwrap_or_else(|| lhs.clone());
-            let new_rhs = resolve_numeric_name(rhs, current_idx, defs).unwrap_or_else(|| rhs.clone());
+            let new_lhs =
+                resolve_numeric_name(lhs, current_idx, defs).unwrap_or_else(|| lhs.clone());
+            let new_rhs =
+                resolve_numeric_name(rhs, current_idx, defs).unwrap_or_else(|| rhs.clone());
             Operand::Immediate(ImmediateValue::SymbolDiff(new_lhs, new_rhs))
         }
         Operand::Immediate(ImmediateValue::Symbol(name)) => {
@@ -174,8 +180,8 @@ fn resolve_numeric_data_values(
     current_idx: usize,
     defs: &HashMap<String, Vec<(usize, String)>>,
 ) -> Vec<DataValue> {
-    vals.iter().map(|val| {
-        match val {
+    vals.iter()
+        .map(|val| match val {
             DataValue::Symbol(name) => {
                 if let Some(resolved) = resolve_numeric_name(name, current_idx, defs) {
                     DataValue::Symbol(resolved)
@@ -184,8 +190,10 @@ fn resolve_numeric_data_values(
                 }
             }
             DataValue::SymbolDiff(lhs, rhs) => {
-                let new_lhs = resolve_numeric_name(lhs, current_idx, defs).unwrap_or_else(|| lhs.clone());
-                let new_rhs = resolve_numeric_name(rhs, current_idx, defs).unwrap_or_else(|| rhs.clone());
+                let new_lhs =
+                    resolve_numeric_name(lhs, current_idx, defs).unwrap_or_else(|| lhs.clone());
+                let new_rhs =
+                    resolve_numeric_name(rhs, current_idx, defs).unwrap_or_else(|| rhs.clone());
                 DataValue::SymbolDiff(new_lhs, new_rhs)
             }
             DataValue::SymbolOffset(name, offset) => {
@@ -196,8 +204,8 @@ fn resolve_numeric_data_values(
                 }
             }
             _ => val.clone(),
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 /// Resolve a numeric label reference name (e.g., "1f" -> ".Lnum_1_0").
@@ -210,11 +218,13 @@ pub fn resolve_numeric_name(
     let def_list = defs.get(num)?;
 
     if is_forward {
-        def_list.iter()
+        def_list
+            .iter()
             .find(|(idx, _)| *idx > current_idx)
             .map(|(_, name)| name.clone())
     } else {
-        def_list.iter()
+        def_list
+            .iter()
             .rev()
             .find(|(idx, _)| *idx < current_idx)
             .map(|(_, name)| name.clone())
@@ -229,17 +239,12 @@ fn resolve_numeric_displacement(
 ) -> Option<Displacement> {
     match disp {
         Displacement::Symbol(name) => {
-            resolve_numeric_name(name, current_idx, defs)
-                .map(Displacement::Symbol)
+            resolve_numeric_name(name, current_idx, defs).map(Displacement::Symbol)
         }
-        Displacement::SymbolAddend(name, addend) => {
-            resolve_numeric_name(name, current_idx, defs)
-                .map(|n| Displacement::SymbolAddend(n, *addend))
-        }
-        Displacement::SymbolMod(name, modifier) => {
-            resolve_numeric_name(name, current_idx, defs)
-                .map(|n| Displacement::SymbolMod(n, modifier.clone()))
-        }
+        Displacement::SymbolAddend(name, addend) => resolve_numeric_name(name, current_idx, defs)
+            .map(|n| Displacement::SymbolAddend(n, *addend)),
+        Displacement::SymbolMod(name, modifier) => resolve_numeric_name(name, current_idx, defs)
+            .map(|n| Displacement::SymbolMod(n, modifier.clone())),
         Displacement::SymbolPlusOffset(name, offset) => {
             resolve_numeric_name(name, current_idx, defs)
                 .map(|n| Displacement::SymbolPlusOffset(n, *offset))

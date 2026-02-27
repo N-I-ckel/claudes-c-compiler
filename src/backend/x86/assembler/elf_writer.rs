@@ -8,7 +8,7 @@
 use super::encoder::*;
 use crate::backend::elf::{ELFCLASS64, EM_X86_64};
 use crate::backend::elf_writer_common::{
-    X86Arch, ElfWriterCore, EncodeResult, EncoderReloc, JumpDetection,
+    ElfWriterCore, EncodeResult, EncoderReloc, JumpDetection, X86Arch,
 };
 
 /// x86-64 architecture implementation for the shared ELF writer.
@@ -49,15 +49,17 @@ impl X86Arch for X86_64Arch {
             }
         };
 
-        let relocations = encoder.relocations.into_iter().map(|r| {
-            EncoderReloc {
+        let relocations = encoder
+            .relocations
+            .into_iter()
+            .map(|r| EncoderReloc {
                 offset: r.offset,
                 symbol: r.symbol,
                 reloc_type: r.reloc_type,
                 addend: r.addend,
                 diff_symbol: None,
-            }
-        }).collect();
+            })
+            .collect();
 
         Ok(EncodeResult {
             bytes: encoder.bytes,
@@ -66,8 +68,12 @@ impl X86Arch for X86_64Arch {
         })
     }
 
-    fn elf_machine() -> u16 { EM_X86_64 }
-    fn elf_class() -> u8 { ELFCLASS64 }
+    fn elf_machine() -> u16 {
+        EM_X86_64
+    }
+    fn elf_class() -> u8 {
+        ELFCLASS64
+    }
 
     fn reloc_abs(size: usize) -> u32 {
         match size {
@@ -76,16 +82,32 @@ impl X86Arch for X86_64Arch {
             _ => R_X86_64_64,
         }
     }
-    fn reloc_abs64() -> u32 { R_X86_64_64 }
-    fn reloc_pc32() -> u32 { R_X86_64_PC32 }
-    fn reloc_plt32() -> u32 { R_X86_64_PLT32 }
+    fn reloc_abs64() -> u32 {
+        R_X86_64_64
+    }
+    fn reloc_pc32() -> u32 {
+        R_X86_64_PC32
+    }
+    fn reloc_plt32() -> u32 {
+        R_X86_64_PLT32
+    }
 
-    fn uses_rel_format() -> bool { false }
+    fn uses_rel_format() -> bool {
+        false
+    }
 
-    fn reloc_pc8_internal() -> Option<u32> { Some(R_X86_64_PC8_INTERNAL) }
-    fn reloc_abs32_for_internal() -> Option<u32> { Some(R_X86_64_32) }
-    fn supports_deferred_skips() -> bool { true }
-    fn resolve_set_aliases_in_data() -> bool { true }
+    fn reloc_pc8_internal() -> Option<u32> {
+        Some(R_X86_64_PC8_INTERNAL)
+    }
+    fn reloc_abs32_for_internal() -> Option<u32> {
+        Some(R_X86_64_32)
+    }
+    fn supports_deferred_skips() -> bool {
+        true
+    }
+    fn resolve_set_aliases_in_data() -> bool {
+        true
+    }
 }
 
 /// Builds an ELF relocatable object file from parsed assembly items.

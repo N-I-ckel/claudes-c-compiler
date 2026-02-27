@@ -16,14 +16,7 @@
 //! FxHashMap, since Value IDs are dense sequential u32s. This eliminates hashing
 //! overhead and gives O(1) lookups with better cache locality.
 
-use crate::ir::reexports::{
-    Instruction,
-    IrFunction,
-    IrModule,
-    Operand,
-    Terminator,
-    Value,
-};
+use crate::ir::reexports::{Instruction, IrFunction, IrModule, Operand, Terminator, Value};
 
 /// Run copy propagation on the entire module.
 /// Returns the number of operand replacements made.
@@ -132,7 +125,11 @@ fn resolve_chain_with_compression(copies: &mut [Option<Operand>], start: u32) {
         }
 
         let idx = current as usize;
-        match if idx < copies.len() { copies[idx] } else { None } {
+        match if idx < copies.len() {
+            copies[idx]
+        } else {
+            None
+        } {
             Some(Operand::Value(v)) => {
                 if v.0 == current {
                     // Self-reference (multi-def or cycle)
@@ -255,7 +252,11 @@ fn replace_operands_in_instruction(inst: &mut Instruction, copy_map: &[Option<Op
             count += replace_value_in_place(dest_ptr, copy_map);
             count += replace_value_in_place(src_ptr, copy_map);
         }
-        Instruction::VaArgStruct { dest_ptr, va_list_ptr, .. } => {
+        Instruction::VaArgStruct {
+            dest_ptr,
+            va_list_ptr,
+            ..
+        } => {
             count += replace_value_in_place(dest_ptr, copy_map);
             count += replace_value_in_place(va_list_ptr, copy_map);
         }
@@ -263,7 +264,12 @@ fn replace_operands_in_instruction(inst: &mut Instruction, copy_map: &[Option<Op
             count += replace_operand(ptr, copy_map);
             count += replace_operand(val, copy_map);
         }
-        Instruction::AtomicCmpxchg { ptr, expected, desired, .. } => {
+        Instruction::AtomicCmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
             count += replace_operand(ptr, copy_map);
             count += replace_operand(expected, copy_map);
             count += replace_operand(desired, copy_map);
@@ -304,7 +310,12 @@ fn replace_operands_in_instruction(inst: &mut Instruction, copy_map: &[Option<Op
                 count += replace_operand(arg, copy_map);
             }
         }
-        Instruction::Select { cond, true_val, false_val, .. } => {
+        Instruction::Select {
+            cond,
+            true_val,
+            false_val,
+            ..
+        } => {
             count += replace_operand(cond, copy_map);
             count += replace_operand(true_val, copy_map);
             count += replace_operand(false_val, copy_map);
@@ -407,7 +418,10 @@ mod tests {
 
         // The BinOp should now reference %0 directly
         match &func.blocks[0].instructions[1] {
-            Instruction::BinOp { lhs: Operand::Value(v), .. } => {
+            Instruction::BinOp {
+                lhs: Operand::Value(v),
+                ..
+            } => {
                 assert_eq!(v.0, 0, "Should reference original value %0");
             }
             other => panic!("Expected BinOp, got {:?}", other),
@@ -449,7 +463,10 @@ mod tests {
 
         // The BinOp should now reference %0 directly
         match &func.blocks[0].instructions[2] {
-            Instruction::BinOp { lhs: Operand::Value(v), .. } => {
+            Instruction::BinOp {
+                lhs: Operand::Value(v),
+                ..
+            } => {
                 assert_eq!(v.0, 0, "Should resolve chain to original value %0");
             }
             other => panic!("Expected BinOp, got {:?}", other),
@@ -486,7 +503,10 @@ mod tests {
 
         // The BinOp should now have const(42) as lhs
         match &func.blocks[0].instructions[1] {
-            Instruction::BinOp { lhs: Operand::Const(IrConst::I32(42)), .. } => {}
+            Instruction::BinOp {
+                lhs: Operand::Const(IrConst::I32(42)),
+                ..
+            } => {}
             other => panic!("Expected BinOp with const 42, got {:?}", other),
         }
     }
@@ -499,12 +519,10 @@ mod tests {
         let mut func = IrFunction::new("test".to_string(), IrType::I32, vec![], false);
         func.blocks.push(BasicBlock {
             label: BlockId(0),
-            instructions: vec![
-                Instruction::Copy {
-                    dest: Value(1),
-                    src: Operand::Value(Value(0)),
-                },
-            ],
+            instructions: vec![Instruction::Copy {
+                dest: Value(1),
+                src: Operand::Value(Value(0)),
+            }],
             terminator: Terminator::Return(Some(Operand::Value(Value(1)))),
             source_spans: Vec::new(),
         });
@@ -525,15 +543,13 @@ mod tests {
         let mut func = IrFunction::new("test".to_string(), IrType::I32, vec![], false);
         func.blocks.push(BasicBlock {
             label: BlockId(0),
-            instructions: vec![
-                Instruction::BinOp {
-                    dest: Value(0),
-                    op: IrBinOp::Add,
-                    lhs: Operand::Const(IrConst::I32(1)),
-                    rhs: Operand::Const(IrConst::I32(2)),
-                    ty: IrType::I32,
-                },
-            ],
+            instructions: vec![Instruction::BinOp {
+                dest: Value(0),
+                op: IrBinOp::Add,
+                lhs: Operand::Const(IrConst::I32(1)),
+                rhs: Operand::Const(IrConst::I32(2)),
+                ty: IrType::I32,
+            }],
             terminator: Terminator::Return(Some(Operand::Value(Value(0)))),
             source_spans: Vec::new(),
         });

@@ -1,9 +1,9 @@
 //! RiscvCodegen: memory operations (load, store, memcpy, GEP, stack).
 
-use crate::ir::reexports::{Operand, Value};
+use super::emit::{callee_saved_name, RiscvCodegen};
+use crate::backend::state::{SlotAddr, StackSlot};
 use crate::common::types::IrType;
-use crate::backend::state::{StackSlot, SlotAddr};
-use super::emit::{RiscvCodegen, callee_saved_name};
+use crate::ir::reexports::{Operand, Value};
 
 impl RiscvCodegen {
     // ---- Store/Load overrides ----
@@ -24,7 +24,13 @@ impl RiscvCodegen {
         crate::backend::traits::emit_load_default(self, dest, ptr, ty);
     }
 
-    pub(super) fn emit_store_with_const_offset_impl(&mut self, val: &Operand, base: &Value, offset: i64, ty: IrType) {
+    pub(super) fn emit_store_with_const_offset_impl(
+        &mut self,
+        val: &Operand,
+        base: &Value,
+        offset: i64,
+        ty: IrType,
+    ) {
         if ty == IrType::F128 {
             crate::backend::f128_softfloat::f128_emit_store_with_offset(self, val, base, offset);
             return;
@@ -39,7 +45,8 @@ impl RiscvCodegen {
                     self.state.emit("    mv t3, t0");
                     self.emit_alloca_aligned_addr_impl(slot, id);
                     self.emit_add_offset_to_addr_reg_impl(offset);
-                    self.state.emit_fmt(format_args!("    {} t3, 0(t5)", store_instr));
+                    self.state
+                        .emit_fmt(format_args!("    {} t3, 0(t5)", store_instr));
                 }
                 SlotAddr::Direct(slot) => {
                     let folded_slot = StackSlot(slot.0 + offset);
@@ -51,13 +58,20 @@ impl RiscvCodegen {
                     if offset != 0 {
                         self.emit_add_offset_to_addr_reg_impl(offset);
                     }
-                    self.state.emit_fmt(format_args!("    {} t3, 0(t5)", store_instr));
+                    self.state
+                        .emit_fmt(format_args!("    {} t3, 0(t5)", store_instr));
                 }
             }
         }
     }
 
-    pub(super) fn emit_load_with_const_offset_impl(&mut self, dest: &Value, base: &Value, offset: i64, ty: IrType) {
+    pub(super) fn emit_load_with_const_offset_impl(
+        &mut self,
+        dest: &Value,
+        base: &Value,
+        offset: i64,
+        ty: IrType,
+    ) {
         if ty == IrType::F128 {
             crate::backend::f128_softfloat::f128_emit_load_with_offset(self, dest, base, offset);
             return;
@@ -70,7 +84,8 @@ impl RiscvCodegen {
                 SlotAddr::OverAligned(slot, id) => {
                     self.emit_alloca_aligned_addr_impl(slot, id);
                     self.emit_add_offset_to_addr_reg_impl(offset);
-                    self.state.emit_fmt(format_args!("    {} t0, 0(t5)", load_instr));
+                    self.state
+                        .emit_fmt(format_args!("    {} t0, 0(t5)", load_instr));
                 }
                 SlotAddr::Direct(slot) => {
                     let folded_slot = StackSlot(slot.0 + offset);
@@ -81,7 +96,8 @@ impl RiscvCodegen {
                     if offset != 0 {
                         self.emit_add_offset_to_addr_reg_impl(offset);
                     }
-                    self.state.emit_fmt(format_args!("    {} t0, 0(t5)", load_instr));
+                    self.state
+                        .emit_fmt(format_args!("    {} t0, 0(t5)", load_instr));
                 }
             }
             self.store_t0_to(dest);
@@ -90,7 +106,12 @@ impl RiscvCodegen {
 
     // ---- Typed store/load to/from slot ----
 
-    pub(super) fn emit_typed_store_to_slot_impl(&mut self, instr: &'static str, _ty: IrType, slot: StackSlot) {
+    pub(super) fn emit_typed_store_to_slot_impl(
+        &mut self,
+        instr: &'static str,
+        _ty: IrType,
+        slot: StackSlot,
+    ) {
         self.emit_store_to_s0("t0", slot.0, instr);
     }
 
@@ -112,14 +133,20 @@ impl RiscvCodegen {
 
     pub(super) fn emit_add_offset_to_addr_reg_impl(&mut self, offset: i64) {
         if Self::fits_imm12(offset) {
-            self.state.emit_fmt(format_args!("    addi t5, t5, {}", offset));
+            self.state
+                .emit_fmt(format_args!("    addi t5, t5, {}", offset));
         } else {
             self.state.emit_fmt(format_args!("    li t6, {}", offset));
             self.state.emit("    add t5, t5, t6");
         }
     }
 
-    pub(super) fn emit_slot_addr_to_secondary_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_slot_addr_to_secondary_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr("t1", val_id, slot.0);
         } else if let Some(&reg) = self.reg_assignments.get(&val_id) {
@@ -137,7 +164,12 @@ impl RiscvCodegen {
         self.emit_addi_s0("t0", folded);
     }
 
-    pub(super) fn emit_gep_indirect_const_impl(&mut self, slot: StackSlot, offset: i64, val_id: u32) {
+    pub(super) fn emit_gep_indirect_const_impl(
+        &mut self,
+        slot: StackSlot,
+        offset: i64,
+        val_id: u32,
+    ) {
         if let Some(&reg) = self.reg_assignments.get(&val_id) {
             let reg_name = callee_saved_name(reg);
             self.state.emit_fmt(format_args!("    mv t0, {}", reg_name));
@@ -151,7 +183,8 @@ impl RiscvCodegen {
 
     pub(super) fn emit_add_imm_to_acc_impl(&mut self, imm: i64) {
         if (-2048..=2047).contains(&imm) {
-            self.state.emit_fmt(format_args!("    addi t0, t0, {}", imm));
+            self.state
+                .emit_fmt(format_args!("    addi t0, t0, {}", imm));
         } else {
             self.state.emit_fmt(format_args!("    li t1, {}", imm));
             self.state.emit("    add t0, t0, t1");
@@ -161,24 +194,30 @@ impl RiscvCodegen {
     // ---- Alloca alignment ----
 
     pub(super) fn emit_alloca_aligned_addr_impl(&mut self, slot: StackSlot, val_id: u32) {
-        let align = self.state.alloca_over_align(val_id)
+        let align = self
+            .state
+            .alloca_over_align(val_id)
             .expect("alloca must have over-alignment for aligned addr emission");
         // Compute s0 + slot_offset into t5 (pointer register)
         self.emit_addi_s0("t5", slot.0);
         // Align: t5 = (t5 + align-1) & -align
-        self.state.emit_fmt(format_args!("    li t6, {}", align - 1));
+        self.state
+            .emit_fmt(format_args!("    li t6, {}", align - 1));
         self.state.emit("    add t5, t5, t6");
         self.state.emit_fmt(format_args!("    li t6, -{}", align));
         self.state.emit("    and t5, t5, t6");
     }
 
     pub(super) fn emit_alloca_aligned_addr_to_acc_impl(&mut self, slot: StackSlot, val_id: u32) {
-        let align = self.state.alloca_over_align(val_id)
+        let align = self
+            .state
+            .alloca_over_align(val_id)
             .expect("alloca must have over-alignment for aligned addr emission");
         // Compute s0 + slot_offset into t0 (accumulator)
         self.emit_addi_s0("t0", slot.0);
         // Align: t0 = (t0 + align-1) & -align
-        self.state.emit_fmt(format_args!("    li t6, {}", align - 1));
+        self.state
+            .emit_fmt(format_args!("    li t6, {}", align - 1));
         self.state.emit("    add t0, t0, t6");
         self.state.emit_fmt(format_args!("    li t6, -{}", align));
         self.state.emit("    and t0, t0, t6");
@@ -188,7 +227,12 @@ impl RiscvCodegen {
 
     // ---- Memcpy ----
 
-    pub(super) fn emit_memcpy_load_dest_addr_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_memcpy_load_dest_addr_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr("t1", val_id, slot.0);
         } else if let Some(&reg) = self.reg_assignments.get(&val_id) {
@@ -199,7 +243,12 @@ impl RiscvCodegen {
         }
     }
 
-    pub(super) fn emit_memcpy_load_src_addr_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_memcpy_load_src_addr_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr("t2", val_id, slot.0);
         } else if let Some(&reg) = self.reg_assignments.get(&val_id) {
@@ -216,7 +265,8 @@ impl RiscvCodegen {
         let done_label = format!(".Lmemcpy_done_{}", label_id);
         self.state.emit_fmt(format_args!("    li t3, {}", size));
         self.state.emit_fmt(format_args!("{}:", loop_label));
-        self.state.emit_fmt(format_args!("    beqz t3, {}", done_label));
+        self.state
+            .emit_fmt(format_args!("    beqz t3, {}", done_label));
         self.state.emit("    lbu t4, 0(t2)");
         self.state.emit("    sb t4, 0(t1)");
         self.state.emit("    addi t1, t1, 1");
@@ -246,7 +296,9 @@ impl RiscvCodegen {
     }
 
     pub(super) fn emit_align_acc_impl(&mut self, align: usize) {
-        self.state.emit_fmt(format_args!("    addi t0, t0, {}", align - 1));
-        self.state.emit_fmt(format_args!("    andi t0, t0, -{}", align));
+        self.state
+            .emit_fmt(format_args!("    addi t0, t0, {}", align - 1));
+        self.state
+            .emit_fmt(format_args!("    andi t0, t0, -{}", align));
     }
 }

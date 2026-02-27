@@ -1,22 +1,37 @@
 //! X86Codegen: comparison and select operations.
 
-use crate::ir::reexports::{BlockId, IrCmpOp, IrConst, Operand, Value};
+use super::emit::{phys_reg_name, X86Codegen};
 use crate::common::types::IrType;
-use super::emit::{X86Codegen, phys_reg_name};
+use crate::ir::reexports::{BlockId, IrCmpOp, IrConst, Operand, Value};
 
 impl X86Codegen {
-    pub(super) fn emit_float_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_float_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         let (mov_to_xmm0, mov_to_xmm1_from_rcx) = if ty == IrType::F32 {
             ("movd %eax, %xmm0", "movd %ecx, %xmm1")
         } else {
             ("movq %rax, %xmm0", "movq %rcx, %xmm1")
         };
-        let swap_operands = matches!(op, IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule);
-        let (first, second) = if swap_operands { (rhs, lhs) } else { (lhs, rhs) };
+        let swap_operands = matches!(
+            op,
+            IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule
+        );
+        let (first, second) = if swap_operands {
+            (rhs, lhs)
+        } else {
+            (lhs, rhs)
+        };
         self.operand_to_rax(first);
         self.state.emit_fmt(format_args!("    {}", mov_to_xmm0));
         self.operand_to_rcx(second);
-        self.state.emit_fmt(format_args!("    {}", mov_to_xmm1_from_rcx));
+        self.state
+            .emit_fmt(format_args!("    {}", mov_to_xmm1_from_rcx));
         if ty == IrType::F64 {
             self.state.emit("    ucomisd %xmm1, %xmm0");
         } else {
@@ -45,8 +60,17 @@ impl X86Codegen {
         self.store_rax_to(dest);
     }
 
-    pub(super) fn emit_f128_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand) {
-        let swap_x87 = matches!(op, IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule);
+    pub(super) fn emit_f128_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) {
+        let swap_x87 = matches!(
+            op,
+            IrCmpOp::Slt | IrCmpOp::Ult | IrCmpOp::Sle | IrCmpOp::Ule
+        );
         let (first_x87, second_x87) = if swap_x87 { (lhs, rhs) } else { (rhs, lhs) };
         self.emit_f128_load_to_x87(first_x87);
         self.emit_f128_load_to_x87(second_x87);
@@ -75,7 +99,14 @@ impl X86Codegen {
         self.store_rax_to(dest);
     }
 
-    pub(super) fn emit_int_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_int_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         let use_32bit = ty == IrType::I32 || ty == IrType::U32;
         self.emit_int_cmp_insn_typed(lhs, rhs, use_32bit);
 
@@ -110,8 +141,8 @@ impl X86Codegen {
         self.emit_int_cmp_insn_typed(lhs, rhs, use_32bit);
 
         let jcc = match op {
-            IrCmpOp::Eq  => "je",
-            IrCmpOp::Ne  => "jne",
+            IrCmpOp::Eq => "je",
+            IrCmpOp::Ne => "jne",
             IrCmpOp::Slt => "jl",
             IrCmpOp::Sle => "jle",
             IrCmpOp::Sgt => "jg",
@@ -121,7 +152,8 @@ impl X86Codegen {
             IrCmpOp::Ugt => "ja",
             IrCmpOp::Uge => "jae",
         };
-        self.state.emit_fmt(format_args!("    {} {}", jcc, true_label));
+        self.state
+            .emit_fmt(format_args!("    {} {}", jcc, true_label));
         self.state.out.emit_jmp_label(false_label);
         self.state.reg_cache.invalidate_all();
     }
@@ -139,8 +171,8 @@ impl X86Codegen {
         self.emit_int_cmp_insn_typed(lhs, rhs, use_32bit);
 
         let jcc = match op {
-            IrCmpOp::Eq  => "    je",
-            IrCmpOp::Ne  => "    jne",
+            IrCmpOp::Eq => "    je",
+            IrCmpOp::Ne => "    jne",
             IrCmpOp::Slt => "    jl",
             IrCmpOp::Sle => "    jle",
             IrCmpOp::Sgt => "    jg",
@@ -155,14 +187,26 @@ impl X86Codegen {
         self.state.reg_cache.invalidate_all();
     }
 
-    pub(super) fn emit_cond_branch_blocks_impl(&mut self, cond: &Operand, true_block: BlockId, false_block: BlockId) {
+    pub(super) fn emit_cond_branch_blocks_impl(
+        &mut self,
+        cond: &Operand,
+        true_block: BlockId,
+        false_block: BlockId,
+    ) {
         self.operand_to_rax(cond);
         self.state.emit("    testq %rax, %rax");
         self.state.out.emit_jcc_block("    jne", true_block.0);
         self.state.out.emit_jmp_block(false_block.0);
     }
 
-    pub(super) fn emit_select_impl(&mut self, dest: &Value, cond: &Operand, true_val: &Operand, false_val: &Operand, _ty: IrType) {
+    pub(super) fn emit_select_impl(
+        &mut self,
+        dest: &Value,
+        cond: &Operand,
+        true_val: &Operand,
+        false_val: &Operand,
+        _ty: IrType,
+    ) {
         self.operand_to_rax(false_val);
         self.operand_to_rcx(true_val);
 
@@ -187,7 +231,9 @@ impl X86Codegen {
             Operand::Value(v) => {
                 if let Some(&reg) = self.reg_assignments.get(&v.0) {
                     let reg_name = phys_reg_name(reg);
-                    self.state.out.emit_instr_reg_reg("    movq", reg_name, "rdx");
+                    self.state
+                        .out
+                        .emit_instr_reg_reg("    movq", reg_name, "rdx");
                 } else if self.state.get_slot(v.0).is_some() {
                     self.value_to_reg(v, "rdx");
                 } else {

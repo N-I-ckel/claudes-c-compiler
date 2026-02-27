@@ -24,15 +24,10 @@
 //! - **Comparison** (`f128_cmp`): F128 comparison via libcalls
 //! - **Negation** (`f128_neg`): sign bit flip
 
-use crate::ir::reexports::{
-    IrCmpOp,
-    IrConst,
-    Operand,
-    Value,
-};
-use crate::common::types::IrType;
-use crate::backend::state::{StackSlot, SlotAddr};
 use crate::backend::cast::FloatOp;
+use crate::backend::state::{SlotAddr, StackSlot};
+use crate::common::types::IrType;
+use crate::ir::reexports::{IrCmpOp, IrConst, Operand, Value};
 
 /// Arch-specific primitives for F128 soft-float operations.
 ///
@@ -477,11 +472,7 @@ pub fn f128_cmp<T: F128SoftFloat + ?Sized>(
 /// Handles four cases: register-allocated pointer, Direct alloca, OverAligned
 /// alloca, and Indirect (non-alloca pointer in slot). Each case resolves to
 /// either a direct slot store or an address-register store.
-pub fn f128_emit_store<T: F128SoftFloat + ?Sized>(
-    cg: &mut T,
-    val: &Operand,
-    ptr: &Value,
-) {
+pub fn f128_emit_store<T: F128SoftFloat + ?Sized>(cg: &mut T, val: &Operand, ptr: &Value) {
     let is_indirect = !cg.f128_is_alloca(ptr.0);
 
     // Check if the pointer lives in a callee-saved register.
@@ -513,11 +504,7 @@ pub fn f128_emit_store<T: F128SoftFloat + ?Sized>(
 /// convert to f64 approximation, and store to dest.
 ///
 /// Also tracks the f128 source for full-precision reloads.
-pub fn f128_emit_load<T: F128SoftFloat + ?Sized>(
-    cg: &mut T,
-    dest: &Value,
-    ptr: &Value,
-) {
+pub fn f128_emit_load<T: F128SoftFloat + ?Sized>(cg: &mut T, dest: &Value, ptr: &Value) {
     cg.state().track_f128_load(dest.0, ptr.0, 0);
     let is_indirect = !cg.f128_is_alloca(ptr.0);
 
@@ -619,7 +606,7 @@ pub fn f128_emit_load_with_offset<T: F128SoftFloat + ?Sized>(
             cg.f128_add_offset_to_addr_reg(offset);
         }
         cg.f128_load_from_addr_reg_to_acc(dest);
-        return;  // load_from_addr_reg_to_acc handles truncation + store
+        return; // load_from_addr_reg_to_acc handles truncation + store
     } else {
         let addr = cg.f128_resolve_slot_addr(base.0);
         if let Some(addr) = addr {

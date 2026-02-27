@@ -27,7 +27,9 @@ fn format_rbp_offset(offset: i32) -> String {
 /// Returns (op_name_with_suffix, dst_reg_str, src_family, dst_family).
 fn parse_alu_reg_reg(trimmed: &str) -> Option<(&str, &str, RegId, RegId)> {
     let b = trimmed.as_bytes();
-    if b.len() < 6 { return None; }
+    if b.len() < 6 {
+        return None;
+    }
 
     let op_len = if b.starts_with(b"add")
         || b.starts_with(b"sub")
@@ -89,7 +91,12 @@ pub(super) fn fold_memory_operands(store: &mut LineStore, infos: &mut [LineInfo]
             continue;
         }
 
-        if let LineKind::LoadRbp { reg: load_reg, offset, size: load_size } = infos[i].kind {
+        if let LineKind::LoadRbp {
+            reg: load_reg,
+            offset,
+            size: load_size,
+        } = infos[i].kind
+        {
             // Only fold loads into scratch registers (rax=0, rcx=1, rdx=2)
             if load_reg > 2 {
                 i += 1;
@@ -113,8 +120,8 @@ pub(super) fn fold_memory_operands(store: &mut LineStore, infos: &mut [LineInfo]
                 continue;
             }
 
-            let is_foldable_target = matches!(infos[j].kind,
-                LineKind::Other { .. } | LineKind::Cmp);
+            let is_foldable_target =
+                matches!(infos[j].kind, LineKind::Other { .. } | LineKind::Cmp);
             if is_foldable_target {
                 let trimmed_j = infos[j].trimmed(store.get(j));
                 if let Some((op_suffix, dst_str, src_fam, dst_fam)) = parse_alu_reg_reg(trimmed_j) {

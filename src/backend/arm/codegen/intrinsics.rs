@@ -3,11 +3,16 @@
 //! NEON intrinsics: SSE-equivalent operations via 128-bit NEON instructions.
 //! F128: IEEE 754 binary128 via compiler-rt/libgcc soft-float libcalls.
 
-use crate::ir::reexports::{IntrinsicOp, Operand, Value};
 use super::emit::ArmCodegen;
+use crate::ir::reexports::{IntrinsicOp, Operand, Value};
 
 impl ArmCodegen {
-    pub(super) fn emit_neon_binary_128(&mut self, dest_ptr: &Value, args: &[Operand], neon_inst: &str) {
+    pub(super) fn emit_neon_binary_128(
+        &mut self,
+        dest_ptr: &Value,
+        args: &[Operand],
+        neon_inst: &str,
+    ) {
         // Load first 128-bit operand pointer into x0, then load q0
         self.operand_to_x0(&args[0]);
         self.state.emit("    ldr q0, [x0]");
@@ -29,7 +34,8 @@ impl ArmCodegen {
         }
         self.state.emit("    ldr q1, [x1]");
         // Apply the binary NEON operation
-        self.state.emit_fmt(format_args!("    {} v0.16b, v0.16b, v1.16b", neon_inst));
+        self.state
+            .emit_fmt(format_args!("    {} v0.16b, v0.16b, v1.16b", neon_inst));
         // Store result to dest_ptr
         self.load_ptr_to_reg(dest_ptr, "x0");
         self.state.emit("    str q0, [x0]");
@@ -63,16 +69,30 @@ impl ArmCodegen {
     }
 
     /// Emit a non-temporal store: load value from args[0], store to dest_ptr.
-    fn emit_nontemporal_store(&mut self, dest_ptr: &Option<Value>, args: &[Operand], save_reg: &str, val_reg: &str) {
+    fn emit_nontemporal_store(
+        &mut self,
+        dest_ptr: &Option<Value>,
+        args: &[Operand],
+        save_reg: &str,
+        val_reg: &str,
+    ) {
         if let Some(ptr) = dest_ptr {
             self.operand_to_x0(&args[0]);
-            self.state.emit_fmt(format_args!("    mov {}, {}", save_reg, val_reg));
+            self.state
+                .emit_fmt(format_args!("    mov {}, {}", save_reg, val_reg));
             self.load_ptr_to_reg(ptr, "x0");
-            self.state.emit_fmt(format_args!("    str {}, [x0]", save_reg));
+            self.state
+                .emit_fmt(format_args!("    str {}, [x0]", save_reg));
         }
     }
 
-    pub(super) fn emit_intrinsic_arm(&mut self, dest: &Option<Value>, op: &IntrinsicOp, dest_ptr: &Option<Value>, args: &[Operand]) {
+    pub(super) fn emit_intrinsic_arm(
+        &mut self,
+        dest: &Option<Value>,
+        op: &IntrinsicOp,
+        dest_ptr: &Option<Value>,
+        args: &[Operand],
+    ) {
         match op {
             IntrinsicOp::Lfence | IntrinsicOp::Mfence => {
                 self.state.emit("    dmb ish");
@@ -210,18 +230,24 @@ impl ArmCodegen {
                     self.state.emit("    str q0, [x0]");
                 }
             }
-            IntrinsicOp::Crc32_8 | IntrinsicOp::Crc32_16
-            | IntrinsicOp::Crc32_32 | IntrinsicOp::Crc32_64 => {
+            IntrinsicOp::Crc32_8
+            | IntrinsicOp::Crc32_16
+            | IntrinsicOp::Crc32_32
+            | IntrinsicOp::Crc32_64 => {
                 let is_64 = matches!(op, IntrinsicOp::Crc32_64);
                 let (save_reg, crc_inst) = match op {
-                    IntrinsicOp::Crc32_8  => ("w9", "crc32cb w9, w9, w0"),
+                    IntrinsicOp::Crc32_8 => ("w9", "crc32cb w9, w9, w0"),
                     IntrinsicOp::Crc32_16 => ("w9", "crc32ch w9, w9, w0"),
                     IntrinsicOp::Crc32_32 => ("w9", "crc32cw w9, w9, w0"),
                     IntrinsicOp::Crc32_64 => ("x9", "crc32cx w9, w9, x0"),
                     _ => unreachable!(),
                 };
                 self.operand_to_x0(&args[0]);
-                self.state.emit_fmt(format_args!("    mov {}, {}", save_reg, if is_64 { "x0" } else { "w0" }));
+                self.state.emit_fmt(format_args!(
+                    "    mov {}, {}",
+                    save_reg,
+                    if is_64 { "x0" } else { "w0" }
+                ));
                 self.operand_to_x0(&args[1]);
                 self.state.emit_fmt(format_args!("    {}", crc_inst));
                 self.state.emit("    mov x0, x9");
@@ -249,35 +275,60 @@ impl ArmCodegen {
             // not appear in ARM codegen in practice. Cross-compiled code that conditionally
             // uses these behind #ifdef __x86_64__ will have the calls dead-code eliminated.
             // TODO: consider emitting a runtime trap instead of silent zeros
-            IntrinsicOp::Aesenc128 | IntrinsicOp::Aesenclast128
-            | IntrinsicOp::Aesdec128 | IntrinsicOp::Aesdeclast128
-            | IntrinsicOp::Aesimc128 | IntrinsicOp::Aeskeygenassist128
+            IntrinsicOp::Aesenc128
+            | IntrinsicOp::Aesenclast128
+            | IntrinsicOp::Aesdec128
+            | IntrinsicOp::Aesdeclast128
+            | IntrinsicOp::Aesimc128
+            | IntrinsicOp::Aeskeygenassist128
             | IntrinsicOp::Pclmulqdq128
-            | IntrinsicOp::Pslldqi128 | IntrinsicOp::Psrldqi128
-            | IntrinsicOp::Psllqi128 | IntrinsicOp::Psrlqi128
-            | IntrinsicOp::Pshufd128 | IntrinsicOp::Loadldi128
-            | IntrinsicOp::Paddw128 | IntrinsicOp::Psubw128
-            | IntrinsicOp::Pmulhw128 | IntrinsicOp::Pmaddwd128
-            | IntrinsicOp::Pcmpgtw128 | IntrinsicOp::Pcmpgtb128
-            | IntrinsicOp::Psllwi128 | IntrinsicOp::Psrlwi128
-            | IntrinsicOp::Psrawi128 | IntrinsicOp::Psradi128
-            | IntrinsicOp::Pslldi128 | IntrinsicOp::Psrldi128
-            | IntrinsicOp::Paddd128 | IntrinsicOp::Psubd128
-            | IntrinsicOp::Packssdw128 | IntrinsicOp::Packsswb128 | IntrinsicOp::Packuswb128
-            | IntrinsicOp::Punpcklbw128 | IntrinsicOp::Punpckhbw128
-            | IntrinsicOp::Punpcklwd128 | IntrinsicOp::Punpckhwd128
-            | IntrinsicOp::SetEpi16 | IntrinsicOp::Pinsrw128
-            | IntrinsicOp::Pextrw128 | IntrinsicOp::Storeldi128
-            | IntrinsicOp::Cvtsi128Si32 | IntrinsicOp::Cvtsi32Si128
+            | IntrinsicOp::Pslldqi128
+            | IntrinsicOp::Psrldqi128
+            | IntrinsicOp::Psllqi128
+            | IntrinsicOp::Psrlqi128
+            | IntrinsicOp::Pshufd128
+            | IntrinsicOp::Loadldi128
+            | IntrinsicOp::Paddw128
+            | IntrinsicOp::Psubw128
+            | IntrinsicOp::Pmulhw128
+            | IntrinsicOp::Pmaddwd128
+            | IntrinsicOp::Pcmpgtw128
+            | IntrinsicOp::Pcmpgtb128
+            | IntrinsicOp::Psllwi128
+            | IntrinsicOp::Psrlwi128
+            | IntrinsicOp::Psrawi128
+            | IntrinsicOp::Psradi128
+            | IntrinsicOp::Pslldi128
+            | IntrinsicOp::Psrldi128
+            | IntrinsicOp::Paddd128
+            | IntrinsicOp::Psubd128
+            | IntrinsicOp::Packssdw128
+            | IntrinsicOp::Packsswb128
+            | IntrinsicOp::Packuswb128
+            | IntrinsicOp::Punpcklbw128
+            | IntrinsicOp::Punpckhbw128
+            | IntrinsicOp::Punpcklwd128
+            | IntrinsicOp::Punpckhwd128
+            | IntrinsicOp::SetEpi16
+            | IntrinsicOp::Pinsrw128
+            | IntrinsicOp::Pextrw128
+            | IntrinsicOp::Storeldi128
+            | IntrinsicOp::Cvtsi128Si32
+            | IntrinsicOp::Cvtsi32Si128
             | IntrinsicOp::Cvtsi128Si64
-            | IntrinsicOp::Pshuflw128 | IntrinsicOp::Pshufhw128
-            | IntrinsicOp::Pinsrd128 | IntrinsicOp::Pextrd128
-            | IntrinsicOp::Pinsrb128 | IntrinsicOp::Pextrb128
-            | IntrinsicOp::Pinsrq128 | IntrinsicOp::Pextrq128 => {
+            | IntrinsicOp::Pshuflw128
+            | IntrinsicOp::Pshufhw128
+            | IntrinsicOp::Pinsrd128
+            | IntrinsicOp::Pextrd128
+            | IntrinsicOp::Pinsrb128
+            | IntrinsicOp::Pextrb128
+            | IntrinsicOp::Pinsrq128
+            | IntrinsicOp::Pextrq128 => {
                 // x86-only: zero dest if present
                 if let Some(dptr) = dest_ptr {
                     if let Some(slot) = self.state.get_slot(dptr.0) {
-                        self.state.emit_fmt(format_args!("    add x9, sp, #{}", slot.0));
+                        self.state
+                            .emit_fmt(format_args!("    add x9, sp, #{}", slot.0));
                         self.state.emit("    stp xzr, xzr, [x9]");
                     }
                 }
@@ -293,5 +344,4 @@ impl ArmCodegen {
     //   Arithmetic: __addtf3, __subtf3, __multf3, __divtf3
     //   Conversion: __extenddftf2 (f64->f128), __trunctfdf2 (f128->f64)
     // ABI: f128 passed/returned in Q registers (q0, q1). Int result in w0/x0.
-
 }

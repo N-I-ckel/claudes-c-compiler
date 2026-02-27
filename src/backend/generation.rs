@@ -9,23 +9,18 @@
 //! These functions are arch-independent — they use the `ArchCodegen` trait to call
 //! into the backend-specific implementations.
 
-use crate::ir::reexports::{
-    BasicBlock,
-    GlobalInit,
-    Instruction,
-    IrConst,
-    IrFunction,
-    IrModule,
-    Operand,
-    Terminator,
-    Value,
-};
-use crate::common::types::{AddressSpace, IrType};
-use crate::common::source::{Span, SourceManager};
-use crate::common::fx_hash::{FxHashMap, FxHashSet};
 use super::common;
+use super::liveness::{
+    for_each_operand_in_instruction, for_each_operand_in_terminator,
+    for_each_value_use_in_instruction,
+};
 use super::traits::ArchCodegen;
-use super::liveness::{for_each_operand_in_instruction, for_each_value_use_in_instruction, for_each_operand_in_terminator};
+use crate::common::fx_hash::{FxHashMap, FxHashSet};
+use crate::common::source::{SourceManager, Span};
+use crate::common::types::{AddressSpace, IrType};
+use crate::ir::reexports::{
+    BasicBlock, GlobalInit, Instruction, IrConst, IrFunction, IrModule, Operand, Terminator, Value,
+};
 
 /// Information about a GEP with a constant offset that can be folded into
 /// Load/Store addressing modes. Instead of computing `base + offset` as a
@@ -55,7 +50,13 @@ fn build_gep_fold_map(func: &IrFunction, use_counts: &[u32]) -> FxHashMap<u32, G
     // Phase 1: Collect all GEPs with constant offsets.
     for block in &func.blocks {
         for inst in &block.instructions {
-            if let Instruction::GetElementPtr { dest, base, offset: Operand::Const(c), .. } = inst {
+            if let Instruction::GetElementPtr {
+                dest,
+                base,
+                offset: Operand::Const(c),
+                ..
+            } = inst
+            {
                 let offset_val = match c.to_i64() {
                     Some(v) => v,
                     None => continue,
@@ -72,7 +73,13 @@ fn build_gep_fold_map(func: &IrFunction, use_counts: &[u32]) -> FxHashMap<u32, G
                 } else {
                     continue;
                 };
-                gep_map.insert(dest.0, GepFoldInfo { base: *base, offset: offset_val });
+                gep_map.insert(
+                    dest.0,
+                    GepFoldInfo {
+                        base: *base,
+                        offset: offset_val,
+                    },
+                );
             }
         }
     }
@@ -108,33 +115,52 @@ fn build_gep_fold_map(func: &IrFunction, use_counts: &[u32]) -> FxHashMap<u32, G
                 //   overridden load path (emit_seg_load) returns early before
                 //   the GEP fold check, so it needs the pointer value to be
                 //   computed by the GEP instruction (not folded away).
-                Instruction::Load { ptr, ty, seg_override, .. } => {
+                Instruction::Load {
+                    ptr,
+                    ty,
+                    seg_override,
+                    ..
+                } => {
                     if matches!(ty, IrType::I128 | IrType::U128)
-                        || *seg_override != AddressSpace::Default {
+                        || *seg_override != AddressSpace::Default
+                    {
                         mark_non_ptr(ptr.0);
                     }
                 }
                 // Store.ptr is foldable, but Store.val is an Operand that is NOT foldable.
                 // Also invalidate if the store type is i128/u128 or has a segment
                 // override, for the same reasons as Load above.
-                Instruction::Store { val, ptr, ty, seg_override, .. } => {
-                    if let Operand::Value(v) = val { mark_non_ptr(v.0); }
+                Instruction::Store {
+                    val,
+                    ptr,
+                    ty,
+                    seg_override,
+                    ..
+                } => {
+                    if let Operand::Value(v) = val {
+                        mark_non_ptr(v.0);
+                    }
                     if matches!(ty, IrType::I128 | IrType::U128)
-                        || *seg_override != AddressSpace::Default {
+                        || *seg_override != AddressSpace::Default
+                    {
                         mark_non_ptr(ptr.0);
                     }
                 }
                 // All other instructions: any reference invalidates folding.
                 _ => {
                     for_each_operand_in_instruction(inst, |op| {
-                        if let Operand::Value(v) = op { mark_non_ptr(v.0); }
+                        if let Operand::Value(v) = op {
+                            mark_non_ptr(v.0);
+                        }
                     });
                     for_each_value_use_in_instruction(inst, |v| mark_non_ptr(v.0));
                 }
             }
         }
         for_each_operand_in_terminator(&block.terminator, |op| {
-            if let Operand::Value(v) = op { mark_non_ptr(v.0); }
+            if let Operand::Value(v) = op {
+                mark_non_ptr(v.0);
+            }
         });
     }
 
@@ -158,7 +184,10 @@ fn build_gep_fold_map(func: &IrFunction, use_counts: &[u32]) -> FxHashMap<u32, G
 /// TLS symbols are excluded because they require special access patterns
 /// (%fs:/@TPOFF on x86-64, %gs:/@NTPOFF on i686, etc.) and must not be
 /// folded into plain RIP-relative accesses.
-fn build_global_addr_map(func: &IrFunction, tls_symbols: &FxHashSet<String>) -> FxHashMap<u32, String> {
+fn build_global_addr_map(
+    func: &IrFunction,
+    tls_symbols: &FxHashSet<String>,
+) -> FxHashMap<u32, String> {
     let mut map: FxHashMap<u32, String> = FxHashMap::default();
     for block in &func.blocks {
         for inst in &block.instructions {
@@ -169,7 +198,12 @@ fn build_global_addr_map(func: &IrFunction, tls_symbols: &FxHashSet<String>) -> 
                         map.insert(dest.0, name.clone());
                     }
                 }
-                Instruction::GetElementPtr { dest, base, offset: Operand::Const(c), .. } => {
+                Instruction::GetElementPtr {
+                    dest,
+                    base,
+                    offset: Operand::Const(c),
+                    ..
+                } => {
                     if let Some(base_name) = map.get(&base.0) {
                         let offset_val = match c.to_i64() {
                             Some(v) => v,
@@ -221,7 +255,12 @@ fn build_foldable_global_addr_set(
     for block in &func.blocks {
         for inst in &block.instructions {
             match inst {
-                Instruction::Load { ptr, ty, seg_override, .. } => {
+                Instruction::Load {
+                    ptr,
+                    ty,
+                    seg_override,
+                    ..
+                } => {
                     // The ptr use is foldable if it's in global_addr_map and type is supported
                     let is_foldable = global_addr_ids.contains(&ptr.0)
                         && global_addr_map.contains_key(&ptr.0)
@@ -232,7 +271,12 @@ fn build_foldable_global_addr_set(
                         has_non_foldable_use.insert(ptr.0);
                     }
                 }
-                Instruction::Store { val, ptr, ty, seg_override } => {
+                Instruction::Store {
+                    val,
+                    ptr,
+                    ty,
+                    seg_override,
+                } => {
                     let is_ptr_foldable = global_addr_ids.contains(&ptr.0)
                         && global_addr_map.contains_key(&ptr.0)
                         && !is_wide_int_type(*ty)
@@ -267,7 +311,10 @@ fn build_foldable_global_addr_set(
     }
 
     // Return GlobalAddr values that have NO non-foldable uses
-    global_addr_ids.difference(&has_non_foldable_use).copied().collect()
+    global_addr_ids
+        .difference(&has_non_foldable_use)
+        .copied()
+        .collect()
 }
 
 /// Build a set of GlobalAddr value IDs that are used as Load/Store pointers.
@@ -294,7 +341,10 @@ fn build_global_addr_ptr_set(func: &IrFunction) -> FxHashSet<u32> {
     let mut derived_from: FxHashMap<u32, u32> = FxHashMap::default(); // derived_dest -> original GlobalAddr
 
     // Helper: if `id` is a GlobalAddr or derived from one, mark it as pointer use
-    let mark_val = |id: u32, global_addrs: &FxHashSet<u32>, derived_from: &FxHashMap<u32, u32>, ptr_set: &mut FxHashSet<u32>| {
+    let mark_val = |id: u32,
+                    global_addrs: &FxHashSet<u32>,
+                    derived_from: &FxHashMap<u32, u32>,
+                    ptr_set: &mut FxHashSet<u32>| {
         if global_addrs.contains(&id) {
             ptr_set.insert(id);
         } else if let Some(&orig) = derived_from.get(&id) {
@@ -302,7 +352,10 @@ fn build_global_addr_ptr_set(func: &IrFunction) -> FxHashSet<u32> {
         }
     };
     // Helper: same but for Operand (skips constants)
-    let mark_op = |op: &Operand, global_addrs: &FxHashSet<u32>, derived_from: &FxHashMap<u32, u32>, ptr_set: &mut FxHashSet<u32>| {
+    let mark_op = |op: &Operand,
+                   global_addrs: &FxHashSet<u32>,
+                   derived_from: &FxHashMap<u32, u32>,
+                   ptr_set: &mut FxHashSet<u32>| {
         if let Operand::Value(v) = op {
             if global_addrs.contains(&v.0) {
                 ptr_set.insert(v.0);
@@ -312,7 +365,10 @@ fn build_global_addr_ptr_set(func: &IrFunction) -> FxHashSet<u32> {
         }
     };
     // Helper: if src_id is a GlobalAddr or derived from one, record dest_id as derived
-    let track_val = |dest_id: u32, src_id: u32, global_addrs: &FxHashSet<u32>, derived_from: &mut FxHashMap<u32, u32>| {
+    let track_val = |dest_id: u32,
+                     src_id: u32,
+                     global_addrs: &FxHashSet<u32>,
+                     derived_from: &mut FxHashMap<u32, u32>| {
         if global_addrs.contains(&src_id) {
             derived_from.insert(dest_id, src_id);
         } else if let Some(&orig) = derived_from.get(&src_id) {
@@ -320,7 +376,10 @@ fn build_global_addr_ptr_set(func: &IrFunction) -> FxHashSet<u32> {
         }
     };
     // Helper: same but for Operand
-    let track_op = |dest_id: u32, op: &Operand, global_addrs: &FxHashSet<u32>, derived_from: &mut FxHashMap<u32, u32>| {
+    let track_op = |dest_id: u32,
+                    op: &Operand,
+                    global_addrs: &FxHashSet<u32>,
+                    derived_from: &mut FxHashMap<u32, u32>| {
         if let Operand::Value(v) = op {
             if global_addrs.contains(&v.0) {
                 derived_from.insert(dest_id, v.0);
@@ -354,7 +413,12 @@ fn build_global_addr_ptr_set(func: &IrFunction) -> FxHashSet<u32> {
                         }
                     }
                 }
-                Instruction::Select { dest, true_val, false_val, .. } => {
+                Instruction::Select {
+                    dest,
+                    true_val,
+                    false_val,
+                    ..
+                } => {
                     // If either branch carries a GlobalAddr, track the result
                     track_op(dest.0, true_val, &global_addrs, &mut derived_from);
                     if !derived_from.contains_key(&dest.0) {
@@ -423,12 +487,16 @@ fn count_value_uses(func: &IrFunction) -> Vec<u32> {
     for block in &func.blocks {
         for inst in &block.instructions {
             for_each_operand_in_instruction(inst, |op| {
-                if let Operand::Value(v) = op { count_id(v.0); }
+                if let Operand::Value(v) = op {
+                    count_id(v.0);
+                }
             });
             for_each_value_use_in_instruction(inst, |v| count_id(v.0));
         }
         for_each_operand_in_terminator(&block.terminator, |op| {
-            if let Operand::Value(v) = op { count_id(v.0); }
+            if let Operand::Value(v) = op {
+                count_id(v.0);
+            }
         });
     }
     counts
@@ -440,7 +508,11 @@ fn count_value_uses(func: &IrFunction) -> Vec<u32> {
 fn detect_cmp_branch_fusion(block: &BasicBlock, use_counts: &[u32]) -> Option<usize> {
     // Terminator must be a CondBranch
     let (cond, _, _) = match &block.terminator {
-        Terminator::CondBranch { cond, true_label, false_label } => (cond, true_label, false_label),
+        Terminator::CondBranch {
+            cond,
+            true_label,
+            false_label,
+        } => (cond, true_label, false_label),
         _ => return None,
     };
 
@@ -455,7 +527,13 @@ fn detect_cmp_branch_fusion(block: &BasicBlock, use_counts: &[u32]) -> Option<us
     let last_inst = &block.instructions[last_idx];
 
     let (dest, _op, _lhs, _rhs, ty) = match last_inst {
-        Instruction::Cmp { dest, op, lhs, rhs, ty } => (dest, op, lhs, rhs, ty),
+        Instruction::Cmp {
+            dest,
+            op,
+            lhs,
+            rhs,
+            ty,
+        } => (dest, op, lhs, rhs, ty),
         _ => return None,
     };
 
@@ -495,7 +573,11 @@ pub fn generate_module_with_debug(
     generate_module(cg, module, source_mgr)
 }
 
-pub fn generate_module(cg: &mut dyn ArchCodegen, module: &IrModule, source_mgr: Option<&crate::common::source::SourceManager>) -> String {
+pub fn generate_module(
+    cg: &mut dyn ArchCodegen,
+    module: &IrModule,
+    source_mgr: Option<&crate::common::source::SourceManager>,
+) -> String {
     pre_size_output_buffer(cg, module);
     collect_symbol_sets(cg, module);
     let file_table = build_and_emit_dwarf_file_table(cg, module, source_mgr);
@@ -534,13 +616,18 @@ pub fn generate_module(cg: &mut dyn ArchCodegen, module: &IrModule, source_mgr: 
 /// repeated reallocations. Each IR instruction typically generates ~40 bytes
 /// of assembly text.
 fn pre_size_output_buffer(cg: &mut dyn ArchCodegen, module: &IrModule) {
-    let total_insts: usize = module.functions.iter()
+    let total_insts: usize = module
+        .functions
+        .iter()
         .map(|f| f.blocks.iter().map(|b| b.instructions.len()).sum::<usize>())
         .sum();
     let estimated_bytes = (total_insts * 40).clamp(256 * 1024, 64 * 1024 * 1024);
     let state = cg.state();
     if state.out.buf.capacity() < estimated_bytes {
-        state.out.buf.reserve(estimated_bytes - state.out.buf.capacity());
+        state
+            .out
+            .buf
+            .reserve(estimated_bytes - state.out.buf.capacity());
     }
 }
 
@@ -551,12 +638,22 @@ fn pre_size_output_buffer(cg: &mut dyn ArchCodegen, module: &IrModule) {
 fn collect_symbol_sets(cg: &mut dyn ArchCodegen, module: &IrModule) {
     let state = cg.state();
     for func in &module.functions {
-        if func.is_static || matches!(func.visibility.as_deref(), Some("hidden" | "internal" | "protected")) {
+        if func.is_static
+            || matches!(
+                func.visibility.as_deref(),
+                Some("hidden" | "internal" | "protected")
+            )
+        {
             state.local_symbols.insert(func.name.clone());
         }
     }
     for global in &module.globals {
-        if global.is_static || matches!(global.visibility.as_deref(), Some("hidden" | "internal" | "protected")) {
+        if global.is_static
+            || matches!(
+                global.visibility.as_deref(),
+                Some("hidden" | "internal" | "protected")
+            )
+        {
             state.local_symbols.insert(global.name.clone());
         }
         if global.is_thread_local {
@@ -567,7 +664,10 @@ fn collect_symbol_sets(cg: &mut dyn ArchCodegen, module: &IrModule) {
         }
     }
     for (name, is_weak, visibility) in &module.symbol_attrs {
-        if matches!(visibility.as_deref(), Some("hidden" | "internal" | "protected")) {
+        if matches!(
+            visibility.as_deref(),
+            Some("hidden" | "internal" | "protected")
+        ) {
             state.local_symbols.insert(name.clone());
         }
         if *is_weak {
@@ -601,10 +701,14 @@ fn build_and_emit_dwarf_file_table(
     let mut table: FxHashMap<String, u32> = FxHashMap::default();
     let mut next_id: u32 = 1;
     for func in &module.functions {
-        if func.is_declaration { continue; }
+        if func.is_declaration {
+            continue;
+        }
         for block in &func.blocks {
             for span in &block.source_spans {
-                if span.start == 0 && span.end == 0 { continue; }
+                if span.start == 0 && span.end == 0 {
+                    continue;
+                }
                 let loc = sm.resolve_span(*span);
                 if let std::collections::hash_map::Entry::Vacant(e) = table.entry(loc.file) {
                     e.insert(next_id);
@@ -618,7 +722,8 @@ fn build_and_emit_dwarf_file_table(
         let mut entries: Vec<(&String, &u32)> = table.iter().collect();
         entries.sort_by_key(|(_name, id)| *id);
         for (name, id) in entries {
-            cg.state().emit_fmt(format_args!(".file {} \"{}\"", id, name));
+            cg.state()
+                .emit_fmt(format_args!(".file {} \"{}\"", id, name));
         }
     }
     table
@@ -631,7 +736,9 @@ fn collect_referenced_symbols(module: &IrModule) -> FxHashSet<String> {
 
     // Symbols referenced in function bodies
     for func in &module.functions {
-        if func.is_declaration { continue; }
+        if func.is_declaration {
+            continue;
+        }
         for block in &func.blocks {
             for inst in &block.instructions {
                 match inst {
@@ -700,7 +807,11 @@ fn collect_referenced_symbols(module: &IrModule) -> FxHashSet<String> {
 
 /// Emit visibility directives for declaration-only (extern) functions with
 /// non-default visibility, but only if they are actually referenced.
-fn emit_extern_visibility_directives(cg: &mut dyn ArchCodegen, module: &IrModule, referenced_symbols: &FxHashSet<String>) {
+fn emit_extern_visibility_directives(
+    cg: &mut dyn ArchCodegen,
+    module: &IrModule,
+    referenced_symbols: &FxHashSet<String>,
+) {
     for func in &module.functions {
         if func.is_declaration && referenced_symbols.contains(&func.name) {
             cg.state().emit_visibility(&func.name, &func.visibility);
@@ -726,13 +837,15 @@ fn emit_functions_and_sections(
     for func in &module.functions {
         if !func.is_declaration {
             if let Some(ref sect) = func.section {
-                cg.state().emit_fmt(format_args!(".section {},\"ax\",@progbits", sect));
+                cg.state()
+                    .emit_fmt(format_args!(".section {},\"ax\",@progbits", sect));
                 cg.state().current_text_section = sect.clone();
                 in_custom_section = true;
             } else if function_sections {
                 // -ffunction-sections: each function gets its own section
                 let sect_name = format!(".text.{}", func.name);
-                cg.state().emit_fmt(format_args!(".section {},\"ax\",@progbits", sect_name));
+                cg.state()
+                    .emit_fmt(format_args!(".section {},\"ax\",@progbits", sect_name));
                 cg.state().current_text_section = sect_name;
                 in_custom_section = false;
             } else if in_custom_section {
@@ -756,19 +869,25 @@ fn emit_aliases(cg: &mut dyn ArchCodegen, module: &IrModule) {
         } else {
             cg.state().emit_fmt(format_args!(".globl {}", alias_name));
         }
-        cg.state().emit_fmt(format_args!(".set {},{}", alias_name, target_name));
+        cg.state()
+            .emit_fmt(format_args!(".set {},{}", alias_name, target_name));
     }
 }
 
 /// Emit .symver directives from __attribute__((symver("name@@VERSION"))).
 fn emit_symver_directives(cg: &mut dyn ArchCodegen, module: &IrModule) {
     for (func_name, symver_str) in &module.symver_directives {
-        cg.state().emit_fmt(format_args!(".symver {},{}", func_name, symver_str));
+        cg.state()
+            .emit_fmt(format_args!(".symver {},{}", func_name, symver_str));
     }
 }
 
 /// Emit .weak/.hidden directives for declaration symbols that are referenced.
-fn emit_symbol_attrs(cg: &mut dyn ArchCodegen, module: &IrModule, referenced_symbols: &FxHashSet<String>) {
+fn emit_symbol_attrs(
+    cg: &mut dyn ArchCodegen,
+    module: &IrModule,
+    referenced_symbols: &FxHashSet<String>,
+) {
     for (name, is_weak, visibility) in &module.symbol_attrs {
         if !referenced_symbols.contains(name) {
             continue;
@@ -781,28 +900,42 @@ fn emit_symbol_attrs(cg: &mut dyn ArchCodegen, module: &IrModule, referenced_sym
 }
 
 /// Emit .init_array and .fini_array sections for constructor/destructor functions.
-fn emit_init_fini_arrays(cg: &mut dyn ArchCodegen, module: &IrModule, ptr_dir: super::common::PtrDirective) {
+fn emit_init_fini_arrays(
+    cg: &mut dyn ArchCodegen,
+    module: &IrModule,
+    ptr_dir: super::common::PtrDirective,
+) {
     let align = crate::common::types::target_ptr_size();
     for ctor in &module.constructors {
         cg.state().emit("");
         cg.state().emit(".section .init_array,\"aw\",@init_array");
-        cg.state().emit_fmt(format_args!(".align {}", ptr_dir.align_arg(align)));
-        cg.state().emit_fmt(format_args!("{} {}", ptr_dir.as_str(), ctor));
+        cg.state()
+            .emit_fmt(format_args!(".align {}", ptr_dir.align_arg(align)));
+        cg.state()
+            .emit_fmt(format_args!("{} {}", ptr_dir.as_str(), ctor));
     }
     for dtor in &module.destructors {
         cg.state().emit("");
         cg.state().emit(".section .fini_array,\"aw\",@fini_array");
-        cg.state().emit_fmt(format_args!(".align {}", ptr_dir.align_arg(align)));
-        cg.state().emit_fmt(format_args!("{} {}", ptr_dir.as_str(), dtor));
+        cg.state()
+            .emit_fmt(format_args!(".align {}", ptr_dir.align_arg(align)));
+        cg.state()
+            .emit_fmt(format_args!("{} {}", ptr_dir.as_str(), dtor));
     }
 }
 
 /// Generate code for a single function.
-fn generate_function(cg: &mut dyn ArchCodegen, func: &IrFunction, source_mgr: Option<&SourceManager>, file_table: &FxHashMap<String, u32>) {
+fn generate_function(
+    cg: &mut dyn ArchCodegen,
+    func: &IrFunction,
+    source_mgr: Option<&SourceManager>,
+    file_table: &FxHashMap<String, u32>,
+) {
     cg.state().reset_for_function();
 
     let type_dir = cg.function_type_directive();
-    cg.state().emit_linkage(&func.name, func.is_static, func.is_weak);
+    cg.state()
+        .emit_linkage(&func.name, func.is_static, func.is_weak);
     cg.state().emit_visibility(&func.name, &func.visibility);
 
     // Emit patchable function entry NOP padding (-fpatchable-function-entry=N,M).
@@ -831,11 +964,13 @@ fn generate_function(cg: &mut dyn ArchCodegen, func: &IrFunction, source_mgr: Op
                 let pfe_align = crate::common::types::target_ptr_size();
                 let pfe_dir = cg.ptr_directive();
                 cg.state().emit_fmt(format_args!(".align {}", pfe_align));
-                cg.state().emit_fmt(format_args!("{} {}", pfe_dir.as_str(), pfe_label));
+                cg.state()
+                    .emit_fmt(format_args!("{} {}", pfe_dir.as_str(), pfe_label));
 
                 // Switch back to the function's section (custom or .text)
                 if let Some(ref sect) = func.section {
-                    cg.state().emit_fmt(format_args!(".section {},\"ax\",@progbits", sect));
+                    cg.state()
+                        .emit_fmt(format_args!(".section {},\"ax\",@progbits", sect));
                 } else {
                     cg.state().emit(".text");
                 }
@@ -849,7 +984,8 @@ fn generate_function(cg: &mut dyn ArchCodegen, func: &IrFunction, source_mgr: Op
         }
     }
 
-    cg.state().emit_fmt(format_args!(".type {}, {}", func.name, type_dir));
+    cg.state()
+        .emit_fmt(format_args!(".type {}, {}", func.name, type_dir));
     cg.state().emit_fmt(format_args!("{}:", func.name));
     let emit_cfi = cg.state().emit_cfi;
     if emit_cfi {
@@ -878,7 +1014,8 @@ fn generate_function(cg: &mut dyn ArchCodegen, func: &IrFunction, source_mgr: Op
         if emit_cfi {
             cg.state().emit(".cfi_endproc");
         }
-        cg.state().emit_fmt(format_args!(".size {}, .-{}", func.name, func.name));
+        cg.state()
+            .emit_fmt(format_args!(".size {}, .-{}", func.name, func.name));
         cg.state().emit("");
         return;
     }
@@ -886,7 +1023,12 @@ fn generate_function(cg: &mut dyn ArchCodegen, func: &IrFunction, source_mgr: Op
     // Pre-scan for DynAlloca/StackRestore: if present, the epilogue must restore SP from
     // the frame pointer instead of adding back the compile-time frame size.
     let has_dyn_alloca = func.blocks.iter().any(|block| {
-        block.instructions.iter().any(|inst| matches!(inst, Instruction::DynAlloca { .. } | Instruction::StackRestore { .. }))
+        block.instructions.iter().any(|inst| {
+            matches!(
+                inst,
+                Instruction::DynAlloca { .. } | Instruction::StackRestore { .. }
+            )
+        })
     });
     cg.state().has_dyn_alloca = has_dyn_alloca;
     cg.state().uses_sret = func.uses_sret;
@@ -967,8 +1109,10 @@ fn generate_function(cg: &mut dyn ArchCodegen, func: &IrFunction, source_mgr: Op
             //    this GEP result (see extend_gep_base_liveness in liveness.rs),
             //    so the register holds the correct value at the use points.
             if let Instruction::GetElementPtr { dest, base, .. } = inst {
-                if gep_fold_map.contains_key(&dest.0) &&
-                   (cg.state_ref().is_alloca(base.0) || cg.get_phys_reg_for_value(base.0).is_some()) {
+                if gep_fold_map.contains_key(&dest.0)
+                    && (cg.state_ref().is_alloca(base.0)
+                        || cg.get_phys_reg_for_value(base.0).is_some())
+                {
                     continue;
                 }
             }
@@ -976,18 +1120,43 @@ fn generate_function(cg: &mut dyn ArchCodegen, func: &IrFunction, source_mgr: Op
             // Emit .loc directive if source location changed.
             if emit_debug {
                 if let Some(span) = block.source_spans.get(idx) {
-                    emit_loc_directive(cg, span, source_mgr.expect("debug mode requires source manager"), file_table,
-                                       &mut last_debug_file, &mut last_debug_line);
+                    emit_loc_directive(
+                        cg,
+                        span,
+                        source_mgr.expect("debug mode requires source manager"),
+                        file_table,
+                        &mut last_debug_file,
+                        &mut last_debug_line,
+                    );
                 }
             }
 
-            generate_instruction(cg, inst, &gep_fold_map, &global_addr_map, &global_addr_ptr_set, &dead_global_addrs);
+            generate_instruction(
+                cg,
+                inst,
+                &gep_fold_map,
+                &global_addr_map,
+                &global_addr_ptr_set,
+                &dead_global_addrs,
+            );
         }
 
         if let Some(fi) = fuse_idx {
             // Emit fused compare-and-branch: cmp + jCC directly
-            if let Instruction::Cmp { dest: _, op, lhs, rhs, ty } = &block.instructions[fi] {
-                if let Terminator::CondBranch { cond: _, true_label, false_label } = &block.terminator {
+            if let Instruction::Cmp {
+                dest: _,
+                op,
+                lhs,
+                rhs,
+                ty,
+            } = &block.instructions[fi]
+            {
+                if let Terminator::CondBranch {
+                    cond: _,
+                    true_label,
+                    false_label,
+                } = &block.terminator
+                {
                     cg.emit_fused_cmp_branch_blocks(*op, lhs, rhs, *ty, *true_label, *false_label);
                 }
             }
@@ -999,7 +1168,8 @@ fn generate_function(cg: &mut dyn ArchCodegen, func: &IrFunction, source_mgr: Op
     if emit_cfi {
         cg.state().emit(".cfi_endproc");
     }
-    cg.state().emit_fmt(format_args!(".size {}, .-{}", func.name, func.name));
+    cg.state()
+        .emit_fmt(format_args!(".size {}, .-{}", func.name, func.name));
     cg.state().emit("");
 }
 
@@ -1021,7 +1191,10 @@ fn emit_loc_directive(
     let loc = source_mgr.resolve_span(*span);
     if let Some(&dwarf_file_id) = file_table.get(&loc.file) {
         if dwarf_file_id != *last_file || loc.line != *last_line {
-            cg.state().emit_fmt(format_args!(".loc {} {} {}", dwarf_file_id, loc.line, loc.column));
+            cg.state().emit_fmt(format_args!(
+                ".loc {} {} {}",
+                dwarf_file_id, loc.line, loc.column
+            ));
             *last_file = dwarf_file_id;
             *last_line = loc.line;
         }
@@ -1041,7 +1214,14 @@ fn emit_loc_directive(
 ///
 /// Instructions that clobber the accumulator unpredictably (calls, stores, atomics,
 /// inline asm, va_arg, memcpy, etc.) invalidate the cache after execution.
-fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_map: &FxHashMap<u32, GepFoldInfo>, global_addr_map: &FxHashMap<u32, String>, global_addr_ptr_set: &FxHashSet<u32>, dead_global_addrs: &FxHashSet<u32>) {
+fn generate_instruction(
+    cg: &mut dyn ArchCodegen,
+    inst: &Instruction,
+    gep_fold_map: &FxHashMap<u32, GepFoldInfo>,
+    global_addr_map: &FxHashMap<u32, String>,
+    global_addr_ptr_set: &FxHashSet<u32>,
+    dead_global_addrs: &FxHashSet<u32>,
+) {
     match inst {
         Instruction::Alloca { .. } => {
             // Space already allocated in prologue; does not touch registers
@@ -1054,11 +1234,29 @@ fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_m
         // These all end with emit_store_result(dest) or store_rax_to(dest),
         // which sets the reg cache correctly. The accumulator holds dest's
         // value after execution, so we do NOT invalidate.
-
-        Instruction::Load { dest, ptr, ty, seg_override } => {
-            generate_load(cg, dest, ptr, *ty, *seg_override, gep_fold_map, global_addr_map);
+        Instruction::Load {
+            dest,
+            ptr,
+            ty,
+            seg_override,
+        } => {
+            generate_load(
+                cg,
+                dest,
+                ptr,
+                *ty,
+                *seg_override,
+                gep_fold_map,
+                global_addr_map,
+            );
         }
-        Instruction::BinOp { dest, op, lhs, rhs, ty } => {
+        Instruction::BinOp {
+            dest,
+            op,
+            lhs,
+            rhs,
+            ty,
+        } => {
             cg.emit_binop(dest, *op, lhs, rhs, *ty);
             if is_wide_int_type(*ty) {
                 cg.state().reg_cache.invalidate_all();
@@ -1070,16 +1268,29 @@ fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_m
                 cg.state().reg_cache.invalidate_all();
             }
         }
-        Instruction::Cmp { dest, op, lhs, rhs, ty } => {
+        Instruction::Cmp {
+            dest,
+            op,
+            lhs,
+            rhs,
+            ty,
+        } => {
             cg.emit_cmp(dest, *op, lhs, rhs, *ty);
         }
-        Instruction::Cast { dest, src, from_ty, to_ty } => {
+        Instruction::Cast {
+            dest,
+            src,
+            from_ty,
+            to_ty,
+        } => {
             cg.emit_cast(dest, src, *from_ty, *to_ty);
             if is_wide_int_type(*to_ty) || is_wide_int_type(*from_ty) {
                 cg.state().reg_cache.invalidate_all();
             }
         }
-        Instruction::GetElementPtr { dest, base, offset, .. } => {
+        Instruction::GetElementPtr {
+            dest, base, offset, ..
+        } => {
             cg.emit_gep(dest, base, offset);
         }
         Instruction::GlobalAddr { dest, name } => {
@@ -1096,14 +1307,21 @@ fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_m
             if !is_dead {
                 if cg.state_ref().tls_symbols.contains(name.as_str()) {
                     cg.emit_tls_global_addr(dest, name);
-                } else if cg.state_ref().code_model_kernel && !global_addr_ptr_set.contains(&dest.0) {
+                } else if cg.state_ref().code_model_kernel && !global_addr_ptr_set.contains(&dest.0)
+                {
                     cg.emit_global_addr_absolute(dest, name);
                 } else {
                     cg.emit_global_addr(dest, name);
                 }
             }
         }
-        Instruction::Select { dest, cond, true_val, false_val, ty } => {
+        Instruction::Select {
+            dest,
+            cond,
+            true_val,
+            false_val,
+            ty,
+        } => {
             cg.emit_select(dest, cond, true_val, false_val, *ty);
         }
         Instruction::LabelAddr { dest, label } => {
@@ -1113,9 +1331,21 @@ fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_m
         // ── Cache-invalidating instructions ──────────────────────────────
         // These clobber the accumulator unpredictably or don't produce a
         // simple acc → dest result. Each arm invalidates the reg cache.
-
-        Instruction::Store { val, ptr, ty, seg_override } => {
-            generate_store(cg, val, ptr, *ty, *seg_override, gep_fold_map, global_addr_map);
+        Instruction::Store {
+            val,
+            ptr,
+            ty,
+            seg_override,
+        } => {
+            generate_store(
+                cg,
+                val,
+                ptr,
+                *ty,
+                *seg_override,
+                gep_fold_map,
+                global_addr_map,
+            );
             cg.state().reg_cache.invalidate_all();
         }
         Instruction::DynAlloca { dest, size, align } => {
@@ -1123,18 +1353,54 @@ fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_m
             cg.state().reg_cache.invalidate_all();
         }
         Instruction::Call { func, info } => {
-            cg.emit_call(&info.args, &info.arg_types, Some(func), None, info.dest, info.return_type, info.is_variadic, info.num_fixed_args, &info.struct_arg_sizes, &info.struct_arg_aligns, &info.struct_arg_classes, &info.struct_arg_riscv_float_classes, info.is_sret, info.is_fastcall, &info.ret_eightbyte_classes);
+            cg.emit_call(
+                &info.args,
+                &info.arg_types,
+                Some(func),
+                None,
+                info.dest,
+                info.return_type,
+                info.is_variadic,
+                info.num_fixed_args,
+                &info.struct_arg_sizes,
+                &info.struct_arg_aligns,
+                &info.struct_arg_classes,
+                &info.struct_arg_riscv_float_classes,
+                info.is_sret,
+                info.is_fastcall,
+                &info.ret_eightbyte_classes,
+            );
             cg.state().reg_cache.invalidate_all();
         }
         Instruction::CallIndirect { func_ptr, info } => {
-            cg.emit_call(&info.args, &info.arg_types, None, Some(func_ptr), info.dest, info.return_type, info.is_variadic, info.num_fixed_args, &info.struct_arg_sizes, &info.struct_arg_aligns, &info.struct_arg_classes, &info.struct_arg_riscv_float_classes, info.is_sret, info.is_fastcall, &info.ret_eightbyte_classes);
+            cg.emit_call(
+                &info.args,
+                &info.arg_types,
+                None,
+                Some(func_ptr),
+                info.dest,
+                info.return_type,
+                info.is_variadic,
+                info.num_fixed_args,
+                &info.struct_arg_sizes,
+                &info.struct_arg_aligns,
+                &info.struct_arg_classes,
+                &info.struct_arg_riscv_float_classes,
+                info.is_sret,
+                info.is_fastcall,
+                &info.ret_eightbyte_classes,
+            );
             cg.state().reg_cache.invalidate_all();
         }
         Instruction::Memcpy { dest, src, size } => {
             cg.emit_memcpy(dest, src, *size);
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::VaArg { dest, va_list_ptr, result_ty } => {
+        Instruction::VaArg {
+            dest,
+            va_list_ptr,
+            result_ty,
+        } => {
             cg.emit_va_arg(dest, va_list_ptr, *result_ty);
             cg.state().reg_cache.invalidate_all();
         }
@@ -1150,23 +1416,63 @@ fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_m
             cg.emit_va_copy(dest_ptr, src_ptr);
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::VaArgStruct { dest_ptr, va_list_ptr, size, ref eightbyte_classes } => {
+        Instruction::VaArgStruct {
+            dest_ptr,
+            va_list_ptr,
+            size,
+            ref eightbyte_classes,
+        } => {
             cg.emit_va_arg_struct_ex(dest_ptr, va_list_ptr, *size, eightbyte_classes);
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::AtomicRmw { dest, op, ptr, val, ty, ordering } => {
+        Instruction::AtomicRmw {
+            dest,
+            op,
+            ptr,
+            val,
+            ty,
+            ordering,
+        } => {
             cg.emit_atomic_rmw(dest, *op, ptr, val, *ty, *ordering);
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::AtomicCmpxchg { dest, ptr, expected, desired, ty, success_ordering, failure_ordering, returns_bool } => {
-            cg.emit_atomic_cmpxchg(dest, ptr, expected, desired, *ty, *success_ordering, *failure_ordering, *returns_bool);
+        Instruction::AtomicCmpxchg {
+            dest,
+            ptr,
+            expected,
+            desired,
+            ty,
+            success_ordering,
+            failure_ordering,
+            returns_bool,
+        } => {
+            cg.emit_atomic_cmpxchg(
+                dest,
+                ptr,
+                expected,
+                desired,
+                *ty,
+                *success_ordering,
+                *failure_ordering,
+                *returns_bool,
+            );
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::AtomicLoad { dest, ptr, ty, ordering } => {
+        Instruction::AtomicLoad {
+            dest,
+            ptr,
+            ty,
+            ordering,
+        } => {
             cg.emit_atomic_load(dest, ptr, *ty, *ordering);
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::AtomicStore { ptr, val, ty, ordering } => {
+        Instruction::AtomicStore {
+            ptr,
+            val,
+            ty,
+            ordering,
+        } => {
             cg.emit_atomic_store(ptr, val, *ty, *ordering);
             cg.state().reg_cache.invalidate_all();
         }
@@ -1199,11 +1505,34 @@ fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_m
             cg.emit_set_return_f128_second(src);
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::InlineAsm { template, outputs, inputs, clobbers, operand_types, goto_labels, input_symbols, seg_overrides } => {
-            cg.emit_inline_asm_with_segs(template, outputs, inputs, clobbers, operand_types, goto_labels, input_symbols, seg_overrides);
+        Instruction::InlineAsm {
+            template,
+            outputs,
+            inputs,
+            clobbers,
+            operand_types,
+            goto_labels,
+            input_symbols,
+            seg_overrides,
+        } => {
+            cg.emit_inline_asm_with_segs(
+                template,
+                outputs,
+                inputs,
+                clobbers,
+                operand_types,
+                goto_labels,
+                input_symbols,
+                seg_overrides,
+            );
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::Intrinsic { dest, op, dest_ptr, args } => {
+        Instruction::Intrinsic {
+            dest,
+            op,
+            dest_ptr,
+            args,
+        } => {
             cg.emit_intrinsic(dest, op, dest_ptr, args);
             cg.state().reg_cache.invalidate_all();
         }
@@ -1215,7 +1544,11 @@ fn generate_instruction(cg: &mut dyn ArchCodegen, inst: &Instruction, gep_fold_m
             cg.emit_stack_restore(ptr);
             cg.state().reg_cache.invalidate_all();
         }
-        Instruction::ParamRef { dest, param_idx, ty } => {
+        Instruction::ParamRef {
+            dest,
+            param_idx,
+            ty,
+        } => {
             cg.emit_param_ref(dest, *param_idx, *ty);
             cg.state().reg_cache.invalidate_all();
         }
@@ -1272,7 +1605,10 @@ fn generate_copy(cg: &mut dyn ArchCodegen, dest: &Value, src: &Operand) {
 /// and GEP folding support.
 fn generate_load(
     cg: &mut dyn ArchCodegen,
-    dest: &Value, ptr: &Value, ty: IrType, seg_override: AddressSpace,
+    dest: &Value,
+    ptr: &Value,
+    ty: IrType,
+    seg_override: AddressSpace,
     gep_fold_map: &FxHashMap<u32, GepFoldInfo>,
     global_addr_map: &FxHashMap<u32, String>,
 ) {
@@ -1294,7 +1630,9 @@ fn generate_load(
     // in non-PIC mode (x86-64 needs GOTPCREL for PIE compatibility).
     if cg.supports_global_addr_fold() && !is_wide_int_type(ty) && ty != IrType::F128 {
         if let Some(sym) = global_addr_map.get(&ptr.0) {
-            if !cg.state_ref().needs_got_for_addr(sym) && !cg.state_ref().tls_symbols.contains(sym.as_str()) {
+            if !cg.state_ref().needs_got_for_addr(sym)
+                && !cg.state_ref().tls_symbols.contains(sym.as_str())
+            {
                 cg.emit_global_load_rip_rel(dest, sym, ty);
                 return;
             }
@@ -1302,8 +1640,10 @@ fn generate_load(
     }
     // Fold GEP with constant offset into Load addressing mode.
     if let Some(gep_info) = gep_fold_map.get(&ptr.0) {
-        if !is_wide_int_type(ty) &&
-           (cg.state_ref().is_alloca(gep_info.base.0) || cg.get_phys_reg_for_value(gep_info.base.0).is_some()) {
+        if !is_wide_int_type(ty)
+            && (cg.state_ref().is_alloca(gep_info.base.0)
+                || cg.get_phys_reg_for_value(gep_info.base.0).is_some())
+        {
             cg.emit_load_with_const_offset(dest, &gep_info.base, gep_info.offset, ty);
             return;
         }
@@ -1318,7 +1658,10 @@ fn generate_load(
 /// and GEP folding support.
 fn generate_store(
     cg: &mut dyn ArchCodegen,
-    val: &Operand, ptr: &Value, ty: IrType, seg_override: AddressSpace,
+    val: &Operand,
+    ptr: &Value,
+    ty: IrType,
+    seg_override: AddressSpace,
     gep_fold_map: &FxHashMap<u32, GepFoldInfo>,
     global_addr_map: &FxHashMap<u32, String>,
 ) {
@@ -1335,7 +1678,9 @@ fn generate_store(
     // Uses needs_got_for_addr: same as Load fold above.
     if cg.supports_global_addr_fold() && !is_wide_int_type(ty) && ty != IrType::F128 {
         if let Some(sym) = global_addr_map.get(&ptr.0) {
-            if !cg.state_ref().needs_got_for_addr(sym) && !cg.state_ref().tls_symbols.contains(sym.as_str()) {
+            if !cg.state_ref().needs_got_for_addr(sym)
+                && !cg.state_ref().tls_symbols.contains(sym.as_str())
+            {
                 cg.emit_global_store_rip_rel(val, sym, ty);
                 return;
             }
@@ -1343,8 +1688,10 @@ fn generate_store(
     }
     // Fold GEP with constant offset into Store addressing mode.
     if let Some(gep_info) = gep_fold_map.get(&ptr.0) {
-        if !is_wide_int_type(ty) &&
-           (cg.state_ref().is_alloca(gep_info.base.0) || cg.get_phys_reg_for_value(gep_info.base.0).is_some()) {
+        if !is_wide_int_type(ty)
+            && (cg.state_ref().is_alloca(gep_info.base.0)
+                || cg.get_phys_reg_for_value(gep_info.base.0).is_some())
+        {
             cg.emit_store_with_const_offset(val, &gep_info.base, gep_info.offset, ty);
             return;
         }
@@ -1361,13 +1708,22 @@ fn generate_terminator(cg: &mut dyn ArchCodegen, term: &Terminator, frame_size: 
         Terminator::Branch(label) => {
             cg.emit_branch_to_block(*label);
         }
-        Terminator::CondBranch { cond, true_label, false_label } => {
+        Terminator::CondBranch {
+            cond,
+            true_label,
+            false_label,
+        } => {
             cg.emit_cond_branch_blocks(cond, *true_label, *false_label);
         }
         Terminator::IndirectBranch { target, .. } => {
             cg.emit_indirect_branch(target);
         }
-        Terminator::Switch { val, cases, default, ty } => {
+        Terminator::Switch {
+            val,
+            cases,
+            default,
+            ty,
+        } => {
             cg.emit_switch(val, cases, default, *ty);
         }
         Terminator::Unreachable => {
@@ -1396,11 +1752,7 @@ pub fn is_wide_int_type(ty: IrType) -> bool {
 // Re-export stack layout functions so existing `crate::backend::generation::X` imports
 // continue to work without changes to downstream code.
 pub use super::stack_layout::{
-    collect_inline_asm_callee_saved,
-    collect_inline_asm_callee_saved_with_generic,
+    calculate_stack_space_common, collect_inline_asm_callee_saved,
+    collect_inline_asm_callee_saved_with_generic, filter_available_regs, find_param_alloca,
     run_regalloc_and_merge_clobbers,
-    filter_available_regs,
-    calculate_stack_space_common,
-    find_param_alloca,
 };
-

@@ -191,7 +191,8 @@ impl IntrinsicOp {
     /// Returns true if this intrinsic is a pure function (no side effects, result depends
     /// only on inputs). Pure intrinsics can be dead-code eliminated if their result is unused.
     pub fn is_pure(&self) -> bool {
-        matches!(self,
+        matches!(
+            self,
             IntrinsicOp::SqrtF32 | IntrinsicOp::SqrtF64 |
             IntrinsicOp::FabsF32 | IntrinsicOp::FabsF64 |
             IntrinsicOp::Aesenc128 | IntrinsicOp::Aesenclast128 |

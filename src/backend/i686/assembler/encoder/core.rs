@@ -42,7 +42,11 @@ impl super::InstructionEncoder {
         }
     }
 
-    pub(super) fn encode_modrm_mem(&mut self, reg_field: u8, mem: &MemoryOperand) -> Result<(), String> {
+    pub(super) fn encode_modrm_mem(
+        &mut self,
+        reg_field: u8,
+        mem: &MemoryOperand,
+    ) -> Result<(), String> {
         let base = mem.base.as_ref();
         let index = mem.index.as_ref();
 
@@ -50,9 +54,7 @@ impl super::InstructionEncoder {
         let (disp_val, has_symbol, pending_reloc) = match &mem.displacement {
             Displacement::None => (0i64, false, None),
             Displacement::Integer(v) => (*v, false, None),
-            Displacement::Symbol(sym) => {
-                (0i64, true, Some((sym.clone(), R_386_32, 0i64)))
-            }
+            Displacement::Symbol(sym) => (0i64, true, Some((sym.clone(), R_386_32, 0i64))),
             Displacement::SymbolAddend(sym, addend) => {
                 (0i64, true, Some((sym.clone(), R_386_32, *addend)))
             }
@@ -73,12 +75,17 @@ impl super::InstructionEncoder {
             if let Some((sym, reloc_type, addend)) = pending_reloc {
                 self.add_relocation(&sym, reloc_type, addend);
             }
-            self.bytes.extend_from_slice(&(disp_val as i32).to_le_bytes());
+            self.bytes
+                .extend_from_slice(&(disp_val as i32).to_le_bytes());
             return Ok(());
         }
 
         let base_reg = base.map(|r| &r.name as &str).unwrap_or("");
-        let base_num = if !base_reg.is_empty() { reg_num(base_reg).unwrap_or(0) } else { 5 };
+        let base_num = if !base_reg.is_empty() {
+            reg_num(base_reg).unwrap_or(0)
+        } else {
+            5
+        };
 
         // Determine if we need SIB
         let need_sib = index.is_some()
@@ -110,7 +117,8 @@ impl super::InstructionEncoder {
                 if let Some((sym, reloc_type, addend)) = pending_reloc {
                     self.add_relocation(&sym, reloc_type, addend);
                 }
-                self.bytes.extend_from_slice(&(disp_val as i32).to_le_bytes());
+                self.bytes
+                    .extend_from_slice(&(disp_val as i32).to_le_bytes());
             } else {
                 self.bytes.push(self.modrm(mod_bits, reg_field, 4));
                 self.bytes.push(self.sib(scale, idx_num, base_num));
@@ -121,7 +129,9 @@ impl super::InstructionEncoder {
                 match disp_size {
                     0 => {}
                     1 => self.bytes.push(disp_val as u8),
-                    4 => self.bytes.extend_from_slice(&(disp_val as i32).to_le_bytes()),
+                    4 => self
+                        .bytes
+                        .extend_from_slice(&(disp_val as i32).to_le_bytes()),
                     _ => unreachable!(),
                 }
             }
@@ -134,7 +144,9 @@ impl super::InstructionEncoder {
             match disp_size {
                 0 => {}
                 1 => self.bytes.push(disp_val as u8),
-                4 => self.bytes.extend_from_slice(&(disp_val as i32).to_le_bytes()),
+                4 => self
+                    .bytes
+                    .extend_from_slice(&(disp_val as i32).to_le_bytes()),
                 _ => unreachable!(),
             }
         }
@@ -147,7 +159,11 @@ impl super::InstructionEncoder {
         // Strip @PLT suffix from symbol names - the suffix only affects relocation type,
         // not the symbol name in the ELF symbol table.
         let (sym, rtype) = if let Some(base) = symbol.strip_suffix("@PLT") {
-            let plt_type = if reloc_type == R_386_PC32 { R_386_PLT32 } else { reloc_type };
+            let plt_type = if reloc_type == R_386_PC32 {
+                R_386_PLT32
+            } else {
+                reloc_type
+            };
             (base, plt_type)
         } else {
             (symbol, reloc_type)
@@ -168,7 +184,13 @@ impl super::InstructionEncoder {
         self.add_relocation(sym, reloc_type, addend);
     }
 
-    pub(super) fn add_relocation_with_diff(&mut self, symbol: &str, reloc_type: u32, addend: i64, diff_sym: &str) {
+    pub(super) fn add_relocation_with_diff(
+        &mut self,
+        symbol: &str,
+        reloc_type: u32,
+        addend: i64,
+        diff_sym: &str,
+    ) {
         self.relocations.push(Relocation {
             offset: self.bytes.len() as u64,
             symbol: symbol.to_string(),

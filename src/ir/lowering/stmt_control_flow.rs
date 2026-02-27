@@ -1,22 +1,27 @@
 //! Control flow statement lowering: if/else, loops (while/for/do-while),
 //! break/continue, goto (direct and computed), and labels.
 
-use crate::frontend::parser::ast::{
-    Expr,
-    ForInit,
-    Stmt,
-};
-use crate::ir::reexports::{BlockId, Instruction, Terminator};
 use super::lower::Lowerer;
+use crate::frontend::parser::ast::{Expr, ForInit, Stmt};
+use crate::ir::reexports::{BlockId, Instruction, Terminator};
 
 impl Lowerer {
-    pub(super) fn lower_if_stmt(&mut self, cond: &Expr, then_stmt: &Stmt, else_stmt: Option<&Stmt>) {
+    pub(super) fn lower_if_stmt(
+        &mut self,
+        cond: &Expr,
+        then_stmt: &Stmt,
+        else_stmt: Option<&Stmt>,
+    ) {
         let cond_val = self.lower_condition_expr(cond);
         let then_label = self.fresh_label();
         let else_label = self.fresh_label();
         let end_label = self.fresh_label();
 
-        let false_target = if else_stmt.is_some() { else_label } else { end_label };
+        let false_target = if else_stmt.is_some() {
+            else_label
+        } else {
+            end_label
+        };
         self.terminate(Terminator::CondBranch {
             cond: cond_val,
             true_label: then_label,
@@ -43,7 +48,9 @@ impl Lowerer {
 
         let scope_depth = self.func().scope_stack.len();
         self.func_mut().break_labels.push((end_label, scope_depth));
-        self.func_mut().continue_labels.push((cond_label, scope_depth));
+        self.func_mut()
+            .continue_labels
+            .push((cond_label, scope_depth));
 
         self.terminate(Terminator::Branch(cond_label));
 
@@ -57,8 +64,12 @@ impl Lowerer {
 
         self.start_block(body_label);
         self.lower_stmt(body);
-        let continue_target = self.func().continue_labels.last()
-            .expect("continue_labels must be non-empty inside a loop body").0;
+        let continue_target = self
+            .func()
+            .continue_labels
+            .last()
+            .expect("continue_labels must be non-empty inside a loop body")
+            .0;
         self.terminate(Terminator::Branch(continue_target));
 
         self.func_mut().break_labels.pop();
@@ -74,7 +85,9 @@ impl Lowerer {
         body: &Stmt,
     ) {
         // C99: for-init declarations have their own scope.
-        let has_decl_init = init.as_ref().is_some_and(|i| matches!(i.as_ref(), ForInit::Declaration(_)));
+        let has_decl_init = init
+            .as_ref()
+            .is_some_and(|i| matches!(i.as_ref(), ForInit::Declaration(_)));
         if has_decl_init {
             self.push_scope();
         }
@@ -86,7 +99,9 @@ impl Lowerer {
                     self.collect_enum_constants_scoped(&decl.type_spec);
                     self.lower_local_decl(decl);
                 }
-                ForInit::Expr(expr) => { self.lower_expr(expr); },
+                ForInit::Expr(expr) => {
+                    self.lower_expr(expr);
+                }
             }
         }
 
@@ -97,7 +112,9 @@ impl Lowerer {
 
         let scope_depth = self.func().scope_stack.len();
         self.func_mut().break_labels.push((end_label, scope_depth));
-        self.func_mut().continue_labels.push((inc_label, scope_depth));
+        self.func_mut()
+            .continue_labels
+            .push((inc_label, scope_depth));
 
         self.terminate(Terminator::Branch(cond_label));
 
@@ -142,7 +159,9 @@ impl Lowerer {
 
         let scope_depth = self.func().scope_stack.len();
         self.func_mut().break_labels.push((end_label, scope_depth));
-        self.func_mut().continue_labels.push((cond_label, scope_depth));
+        self.func_mut()
+            .continue_labels
+            .push((cond_label, scope_depth));
 
         self.terminate(Terminator::Branch(body_label));
 
@@ -217,7 +236,9 @@ impl Lowerer {
         // Only emit cleanup calls for scopes being exited by the goto, i.e. scopes
         // deeper than the target label's scope depth.
         let current_depth = self.func().scope_stack.len();
-        let target_depth = self.func().user_label_depths
+        let target_depth = self
+            .func()
+            .user_label_depths
             .get(label)
             .copied()
             // Fallback: if the label depth is unknown (shouldn't happen after prescan),
@@ -269,8 +290,12 @@ impl Lowerer {
             self.emit(Instruction::StackRestore { ptr: save_val });
         }
         let target = self.lower_expr(expr);
-        let possible_targets: Vec<BlockId> = self.func_mut().user_labels.values().copied().collect();
-        self.terminate(Terminator::IndirectBranch { target, possible_targets });
+        let possible_targets: Vec<BlockId> =
+            self.func_mut().user_labels.values().copied().collect();
+        self.terminate(Terminator::IndirectBranch {
+            target,
+            possible_targets,
+        });
         let dead = self.fresh_label();
         self.start_block(dead);
     }

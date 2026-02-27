@@ -6,14 +6,8 @@
 //! metadata, and typedef helpers.
 
 use crate::common::fx_hash::FxHashMap;
-use crate::ir::reexports::{
-    BlockId,
-    GlobalInit,
-    IrConst,
-    IrParam,
-    Value,
-};
-use crate::common::types::{AddressSpace, IrType, RcLayout, CType};
+use crate::common::types::{AddressSpace, CType, IrType, RcLayout};
+use crate::ir::reexports::{BlockId, GlobalInit, IrConst, IrParam, Value};
 
 /// Type metadata shared between local and global variables.
 ///
@@ -101,11 +95,15 @@ pub(super) struct LocalInfo {
 
 impl std::ops::Deref for LocalInfo {
     type Target = VarInfo;
-    fn deref(&self) -> &VarInfo { &self.var }
+    fn deref(&self) -> &VarInfo {
+        &self.var
+    }
 }
 
 impl std::ops::DerefMut for LocalInfo {
-    fn deref_mut(&mut self) -> &mut VarInfo { &mut self.var }
+    fn deref_mut(&mut self) -> &mut VarInfo {
+        &mut self.var
+    }
 }
 
 /// Information about a global variable tracked by the lowerer.
@@ -121,11 +119,15 @@ pub(super) struct GlobalInfo {
 
 impl std::ops::Deref for GlobalInfo {
     type Target = VarInfo;
-    fn deref(&self) -> &VarInfo { &self.var }
+    fn deref(&self) -> &VarInfo {
+        &self.var
+    }
 }
 
 impl std::ops::DerefMut for GlobalInfo {
-    fn deref_mut(&mut self) -> &mut VarInfo { &mut self.var }
+    fn deref_mut(&mut self) -> &mut VarInfo {
+        &mut self.var
+    }
 }
 
 /// Pre-computed declaration analysis shared between `lower_local_decl` and
@@ -416,7 +418,10 @@ impl VarInfo {
 impl GlobalInfo {
     /// Construct a GlobalInfo from a DeclAnalysis, avoiding repeated field construction.
     pub(super) fn from_analysis(da: &DeclAnalysis) -> Self {
-        GlobalInfo { var: VarInfo::from_analysis(da), asm_register: None }
+        GlobalInfo {
+            var: VarInfo::from_analysis(da),
+            asm_register: None,
+        }
     }
 }
 

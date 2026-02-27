@@ -24,7 +24,10 @@ pub(super) fn parse_elf32(data: &[u8], filename: &str) -> Result<InputObject, St
     }
     let e_type = read_u16(data, 16);
     if e_type != ET_REL {
-        return Err(format!("{}: not a relocatable object (type={})", filename, e_type));
+        return Err(format!(
+            "{}: not a relocatable object (type={})",
+            filename, e_type
+        ));
     }
     let e_machine = read_u16(data, 18);
     if e_machine != EM_386 {
@@ -66,7 +69,8 @@ pub(super) fn parse_elf32(data: &[u8], filename: &str) -> Result<InputObject, St
             symtab_idx = Some(i);
             let str_idx = shdr.link as usize;
             let str_shdr = &shdrs[str_idx];
-            strtab_data = &data[str_shdr.offset as usize..(str_shdr.offset + str_shdr.size) as usize];
+            strtab_data =
+                &data[str_shdr.offset as usize..(str_shdr.offset + str_shdr.size) as usize];
         }
     }
 
@@ -130,11 +134,12 @@ pub(super) fn parse_elf32(data: &[u8], filename: &str) -> Result<InputObject, St
                     let sym_idx = r_info >> 8;
                     let rel_type = r_info & 0xff;
                     // For REL (not RELA), the addend is implicit in the section data
-                    let addend = if rel_type != R_386_NONE && (r_offset as usize + 4) <= sec_data.len() {
-                        read_i32(&sec_data, r_offset as usize)
-                    } else {
-                        0
-                    };
+                    let addend =
+                        if rel_type != R_386_NONE && (r_offset as usize + 4) <= sec_data.len() {
+                            read_i32(&sec_data, r_offset as usize)
+                        } else {
+                            0
+                        };
                     relocs.push((r_offset, rel_type, sym_idx, addend));
                 }
             }
@@ -162,7 +167,10 @@ pub(super) fn parse_elf32(data: &[u8], filename: &str) -> Result<InputObject, St
 }
 
 /// Parse a regular (.a) archive, returning ELF32 members.
-pub(super) fn parse_archive(data: &[u8], _filename: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
+pub(super) fn parse_archive(
+    data: &[u8],
+    _filename: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
     let raw_members = parse_archive_members(data)?;
     let mut members = Vec::new();
     for (name, offset, size) in raw_members {
@@ -175,7 +183,10 @@ pub(super) fn parse_archive(data: &[u8], _filename: &str) -> Result<Vec<(String,
 }
 
 /// Parse a GNU thin archive, reading member data from external files.
-pub(super) fn parse_thin_archive_i686(data: &[u8], archive_path: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
+pub(super) fn parse_thin_archive_i686(
+    data: &[u8],
+    archive_path: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
     let member_names = parse_thin_archive_members(data)?;
     let archive_dir = std::path::Path::new(archive_path)
         .parent()
@@ -184,8 +195,12 @@ pub(super) fn parse_thin_archive_i686(data: &[u8], archive_path: &str) -> Result
     for name in member_names {
         let member_path = archive_dir.join(&name);
         let content = std::fs::read(&member_path).map_err(|e| {
-            format!("thin archive {}: failed to read member '{}': {}",
-                    archive_path, member_path.display(), e)
+            format!(
+                "thin archive {}: failed to read member '{}': {}",
+                archive_path,
+                member_path.display(),
+                e
+            )
         })?;
         if content.len() >= 4 && content[0..4] == ELF_MAGIC {
             members.push((name, content));

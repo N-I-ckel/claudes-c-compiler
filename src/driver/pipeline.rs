@@ -12,12 +12,12 @@
 use crate::backend::Target;
 use crate::common::error::{ColorMode, DiagnosticEngine, WarningConfig};
 use crate::common::source::SourceManager;
-use crate::frontend::preprocessor::Preprocessor;
 use crate::frontend::lexer::Lexer;
 use crate::frontend::parser::Parser;
+use crate::frontend::preprocessor::Preprocessor;
 use crate::frontend::sema::SemanticAnalyzer;
 use crate::ir::lowering::Lowerer;
-use crate::ir::mem2reg::{promote_allocas, eliminate_phis};
+use crate::ir::mem2reg::{eliminate_phis, promote_allocas};
 use crate::passes::run_passes;
 
 /// Compilation mode - determines where in the pipeline to stop.
@@ -243,7 +243,7 @@ impl Driver {
             output_path: "a.out".to_string(),
             output_path_set: false,
             input_files: Vec::new(),
-            opt_level: 2, // All levels run the same optimizations; default to max
+            opt_level: 2,    // All levels run the same optimizations; default to max
             optimize: false, // Only set to true when user explicitly passes -O1 or higher
             optimize_size: false,
             verbose: false,
@@ -319,9 +319,10 @@ impl Driver {
         // Set the thread-local target pointer size for type system queries.
         // Must be done before any CType/IrType size computations.
         crate::common::types::set_target_ptr_size(self.target.ptr_size());
-        crate::common::types::set_target_long_double_is_f128(
-            matches!(self.target, Target::Aarch64 | Target::Riscv64)
-        );
+        crate::common::types::set_target_long_double_is_f128(matches!(
+            self.target,
+            Target::Aarch64 | Target::Riscv64
+        ));
 
         match self.mode {
             CompileMode::PreprocessOnly => self.run_preprocess_only(),
@@ -356,7 +357,11 @@ impl Driver {
                     let stem = p.file_stem().unwrap_or_default().to_string_lossy();
                     format!("{}.o", stem)
                 };
-                let input_name = if input_file == "-" { "<stdin>" } else { input_file };
+                let input_name = if input_file == "-" {
+                    "<stdin>"
+                } else {
+                    input_file
+                };
                 let dep_line = format!("{}: {}\n", target, input_name);
 
                 if self.output_path_set {
@@ -372,7 +377,11 @@ impl Driver {
 
             let mut preprocessor = Preprocessor::new();
             self.configure_preprocessor(&mut preprocessor);
-            let filename = if input_file == "-" { "<stdin>" } else { input_file };
+            let filename = if input_file == "-" {
+                "<stdin>"
+            } else {
+                input_file
+            };
             preprocessor.set_filename(filename);
             self.process_force_includes(&mut preprocessor)?;
 
@@ -385,9 +394,16 @@ impl Driver {
                 let pp_errors = preprocessor.errors();
                 if !pp_errors.is_empty() {
                     for err in pp_errors {
-                        eprintln!("{}:{}:{}: error: {}", err.file, err.line, err.col, err.message);
+                        eprintln!(
+                            "{}:{}:{}: error: {}",
+                            err.file, err.line, err.col, err.message
+                        );
                     }
-                    return Err(format!("{} preprocessor error(s) in {}", pp_errors.len(), filename));
+                    return Err(format!(
+                        "{} preprocessor error(s) in {}",
+                        pp_errors.len(),
+                        filename
+                    ));
                 }
 
                 let output = preprocessor.dump_defines();
@@ -428,9 +444,16 @@ impl Driver {
                 let pp_errors = preprocessor.errors();
                 if !pp_errors.is_empty() {
                     for err in pp_errors {
-                        eprintln!("{}:{}:{}: error: {}", err.file, err.line, err.col, err.message);
+                        eprintln!(
+                            "{}:{}:{}: error: {}",
+                            err.file, err.line, err.col, err.message
+                        );
                     }
-                    return Err(format!("{} preprocessor error(s) in {}", pp_errors.len(), filename));
+                    return Err(format!(
+                        "{} preprocessor error(s) in {}",
+                        pp_errors.len(),
+                        filename
+                    ));
                 }
             }
         }
@@ -541,7 +564,8 @@ impl Driver {
         if self.output_path_set {
             cmd.arg("-o").arg(&self.output_path);
         }
-        let result = cmd.output()
+        let result = cmd
+            .output()
             .map_err(|e| format!("Failed to preprocess {}: {}", input_file, e))?;
         if !self.output_path_set {
             print!("{}", String::from_utf8_lossy(&result.stdout));
@@ -628,9 +652,7 @@ impl Driver {
                 let tmp = TempFile::new("ccc", Self::input_stem(input_file), "o");
                 self.assemble_source_file(input_file, tmp.to_str())?;
                 temp_guards.push(tmp);
-            } else if !Self::is_c_source(input_file)
-                && Self::looks_like_binary_object(input_file)
-            {
+            } else if !Self::is_c_source(input_file) && Self::looks_like_binary_object(input_file) {
                 // Unrecognized extension but file has ELF/archive magic bytes -
                 // treat as object file. These weren't caught by is_object_or_archive
                 // at parse time, so add them to the extra passthrough list.
@@ -654,7 +676,8 @@ impl Driver {
 
                 let tmp = TempFile::new("ccc", Self::input_stem(input_file), "o");
                 let extra = self.build_asm_extra_args();
-                self.target.assemble_with_extra(&asm, tmp.to_str(), &extra)?;
+                self.target
+                    .assemble_with_extra(&asm, tmp.to_str(), &extra)?;
                 // Write dependency file for this source file. When compiling and
                 // linking in one step, GCC's -Wp,-MMD uses the .o name as the
                 // dependency target. We use the output executable path as target,
@@ -694,7 +717,9 @@ impl Driver {
                 .collect();
             eprintln!(
                 " /usr/bin/ld -dynamic-linker {} -o {}{}",
-                self.target.dynamic_linker(), self.output_path, l_flags,
+                self.target.dynamic_linker(),
+                self.output_path,
+                l_flags,
             );
             eprintln!("LIBRARY_PATH={}", lib_paths);
         }
@@ -702,7 +727,8 @@ impl Driver {
         if linker_args.is_empty() {
             self.target.link(&all_objects, &self.output_path)?;
         } else {
-            self.target.link_with_args(&all_objects, &self.output_path, &linker_args)?;
+            self.target
+                .link_with_args(&all_objects, &self.output_path, &linker_args)?;
         }
 
         // temp_guards drop here, cleaning up all temp .o files automatically.
@@ -755,8 +781,7 @@ impl Driver {
     /// encoded as PUA code points (U+E080-U+E0FF) which the lexer decodes
     /// back to raw bytes inside string/character literals.
     fn read_c_source_file(path: &str) -> Result<String, String> {
-        let bytes = std::fs::read(path)
-            .map_err(|e| format!("Cannot read {}: {}", path, e))?;
+        let bytes = std::fs::read(path).map_err(|e| format!("Cannot read {}: {}", path, e))?;
         Ok(crate::common::encoding::bytes_to_string(bytes))
     }
 
@@ -765,7 +790,8 @@ impl Driver {
         if input_file == "-" {
             use std::io::Read;
             let mut bytes = Vec::new();
-            std::io::stdin().read_to_end(&mut bytes)
+            std::io::stdin()
+                .read_to_end(&mut bytes)
                 .map_err(|e| format!("Cannot read from stdin: {}", e))?;
             Ok(crate::common::encoding::bytes_to_string(bytes))
         } else {
@@ -869,7 +895,10 @@ impl Driver {
     /// The file is searched in this order:
     /// 1. Current working directory (for relative paths)
     /// 2. Include paths (-I, -isystem, system defaults, -idirafter)
-    pub(super) fn process_force_includes(&self, preprocessor: &mut Preprocessor) -> Result<(), String> {
+    pub(super) fn process_force_includes(
+        &self,
+        preprocessor: &mut Preprocessor,
+    ) -> Result<(), String> {
         for path in &self.force_includes {
             let resolved = if std::path::Path::new(path).is_absolute() {
                 std::path::PathBuf::from(path)
@@ -882,7 +911,8 @@ impl Driver {
                     cwd_path
                 } else {
                     // Search include paths (like #include "file")
-                    preprocessor.resolve_include_path(path, false)
+                    preprocessor
+                        .resolve_include_path(path, false)
                         .unwrap_or(cwd_path)
                 }
             };
@@ -908,11 +938,17 @@ impl Driver {
         // Preprocess
         let mut preprocessor = Preprocessor::new();
         self.configure_preprocessor(&mut preprocessor);
-        let filename = if input_file == "-" { "<stdin>" } else { input_file };
+        let filename = if input_file == "-" {
+            "<stdin>"
+        } else {
+            input_file
+        };
         preprocessor.set_filename(filename);
         self.process_force_includes(&mut preprocessor)?;
         let preprocessed = preprocessor.preprocess(&source);
-        if time_phases { eprintln!("[TIME] preprocess: {:.3}s", t0.elapsed().as_secs_f64()); }
+        if time_phases {
+            eprintln!("[TIME] preprocess: {:.3}s", t0.elapsed().as_secs_f64());
+        }
 
         // Create diagnostic engine for structured error/warning reporting
         let mut diagnostics = DiagnosticEngine::new();
@@ -926,7 +962,8 @@ impl Driver {
             let diag = crate::common::error::Diagnostic::warning_with_kind(
                 warn.message.clone(),
                 crate::common::error::WarningKind::Cpp,
-            ).with_location(&warn.file, warn.line, warn.col);
+            )
+            .with_location(&warn.file, warn.line, warn.col);
             diagnostics.emit(&diag);
         }
 
@@ -938,7 +975,11 @@ impl Driver {
                     .with_location(&err.file, err.line, err.col);
                 diagnostics.emit(&diag);
             }
-            return Err(format!("{} preprocessor error(s) in {}", pp_errors.len(), input_file));
+            return Err(format!(
+                "{} preprocessor error(s) in {}",
+                pp_errors.len(),
+                input_file
+            ));
         }
 
         // Lex
@@ -957,7 +998,13 @@ impl Driver {
         let mut lexer = Lexer::new(source_manager.get_content(file_id), file_id);
         lexer.set_gnu_extensions(self.gnu_extensions);
         let tokens = lexer.tokenize();
-        if time_phases { eprintln!("[TIME] lex: {:.3}s ({} tokens)", t1.elapsed().as_secs_f64(), tokens.len()); }
+        if time_phases {
+            eprintln!(
+                "[TIME] lex: {:.3}s ({} tokens)",
+                t1.elapsed().as_secs_f64(),
+                tokens.len()
+            );
+        }
 
         if self.verbose {
             eprintln!("Lexed {} tokens from {}", tokens.len(), input_file);
@@ -971,10 +1018,15 @@ impl Driver {
         let mut parser = Parser::new(tokens);
         parser.set_diagnostics(diagnostics);
         let ast = parser.parse();
-        if time_phases { eprintln!("[TIME] parse: {:.3}s", t2.elapsed().as_secs_f64()); }
+        if time_phases {
+            eprintln!("[TIME] parse: {:.3}s", t2.elapsed().as_secs_f64());
+        }
 
         if parser.error_count > 0 {
-            return Err(format!("{}: {} parse error(s)", input_file, parser.error_count));
+            return Err(format!(
+                "{}: {} parse error(s)",
+                input_file, parser.error_count
+            ));
         }
 
         // Retrieve diagnostic engine (which holds the source manager) for subsequent phases
@@ -997,13 +1049,18 @@ impl Driver {
         let sema_result = sema.into_result();
         // Extract source manager for debug info emission (-g) after sema is done
         let source_manager = diagnostics.take_source_manager();
-        if time_phases { eprintln!("[TIME] sema: {:.3}s", t3.elapsed().as_secs_f64()); }
+        if time_phases {
+            eprintln!("[TIME] sema: {:.3}s", t3.elapsed().as_secs_f64());
+        }
 
         // Check for warnings promoted to errors by -Werror / -Werror=<name>.
         // The sema pass may have returned Ok (no hard errors), but the diagnostic
         // engine may have accumulated promoted-warning-errors that should stop compilation.
         if diagnostics.has_errors() {
-            return Err(format!("{} error(s) (warnings promoted by -Werror)", diagnostics.error_count()));
+            return Err(format!(
+                "{} error(s) (warnings promoted by -Werror)",
+                diagnostics.error_count()
+            ));
         }
 
         // Log diagnostic summary if there were any warnings
@@ -1030,7 +1087,9 @@ impl Driver {
         for (symbol, target) in &preprocessor.weak_pragmas {
             if let Some(ref alias_target) = target {
                 // #pragma weak symbol = alias -> create weak alias
-                module.aliases.push((symbol.clone(), alias_target.clone(), true));
+                module
+                    .aliases
+                    .push((symbol.clone(), alias_target.clone(), true));
             } else {
                 // #pragma weak symbol -> mark as weak
                 module.symbol_attrs.push((symbol.clone(), true, None));
@@ -1042,7 +1101,9 @@ impl Driver {
         // locally, but a proper implementation would rename symbol references
         // during lowering/codegen for the case where new_name is external.
         for (old_name, new_name) in &preprocessor.redefine_extname_pragmas {
-            module.aliases.push((old_name.clone(), new_name.clone(), false));
+            module
+                .aliases
+                .push((old_name.clone(), new_name.clone(), false));
         }
 
         // Apply -fcommon: mark tentative definitions as COMMON symbols.
@@ -1051,7 +1112,9 @@ impl Driver {
         // so the linker merges duplicates across TUs instead of reporting errors.
         if self.fcommon {
             for global in &mut module.globals {
-                if !global.is_common && !global.is_extern && !global.is_static
+                if !global.is_common
+                    && !global.is_extern
+                    && !global.is_static
                     && !global.is_thread_local
                     && matches!(global.init, crate::ir::module::GlobalInit::Zero)
                 {
@@ -1060,11 +1123,20 @@ impl Driver {
             }
         }
 
-        if time_phases { eprintln!("[TIME] lowering: {:.3}s ({} functions)", t4.elapsed().as_secs_f64(), module.functions.len()); }
+        if time_phases {
+            eprintln!(
+                "[TIME] lowering: {:.3}s ({} functions)",
+                t4.elapsed().as_secs_f64(),
+                module.functions.len()
+            );
+        }
 
         // Check for errors emitted during lowering (e.g., unresolved types, invalid constructs)
         if diagnostics.has_errors() {
-            return Err(format!("{} error(s) during IR lowering", diagnostics.error_count()));
+            return Err(format!(
+                "{} error(s) during IR lowering",
+                diagnostics.error_count()
+            ));
         }
 
         // Log diagnostic summary if there were any warnings during lowering
@@ -1079,16 +1151,22 @@ impl Driver {
         // Run optimization passes
         let t5 = std::time::Instant::now();
         promote_allocas(&mut module);
-        if time_phases { eprintln!("[TIME] mem2reg: {:.3}s", t5.elapsed().as_secs_f64()); }
+        if time_phases {
+            eprintln!("[TIME] mem2reg: {:.3}s", t5.elapsed().as_secs_f64());
+        }
 
         let t6 = std::time::Instant::now();
         run_passes(&mut module, self.opt_level, self.target);
-        if time_phases { eprintln!("[TIME] opt passes: {:.3}s", t6.elapsed().as_secs_f64()); }
+        if time_phases {
+            eprintln!("[TIME] opt passes: {:.3}s", t6.elapsed().as_secs_f64());
+        }
 
         // Lower SSA phi nodes to copies before codegen
         let t7 = std::time::Instant::now();
         eliminate_phis(&mut module);
-        if time_phases { eprintln!("[TIME] phi elimination: {:.3}s", t7.elapsed().as_secs_f64()); }
+        if time_phases {
+            eprintln!("[TIME] phi elimination: {:.3}s", t7.elapsed().as_secs_f64());
+        }
 
         // Note: we intentionally do NOT run copy_prop after phi elimination.
         // The IR is no longer in SSA form at this point - Copy instructions from
@@ -1119,11 +1197,25 @@ impl Driver {
             emit_cfi: !self.no_unwind_tables,
         };
         let asm = self.target.generate_assembly_with_opts_and_debug(
-            &module, &opts, source_manager.as_ref(),
+            &module,
+            &opts,
+            source_manager.as_ref(),
         );
-        if time_phases { eprintln!("[TIME] codegen: {:.3}s ({} bytes asm)", t8.elapsed().as_secs_f64(), asm.len()); }
+        if time_phases {
+            eprintln!(
+                "[TIME] codegen: {:.3}s ({} bytes asm)",
+                t8.elapsed().as_secs_f64(),
+                asm.len()
+            );
+        }
 
-        if time_phases { eprintln!("[TIME] total compile {}: {:.3}s", input_file, t0.elapsed().as_secs_f64()); }
+        if time_phases {
+            eprintln!(
+                "[TIME] total compile {}: {:.3}s",
+                input_file,
+                t0.elapsed().as_secs_f64()
+            );
+        }
 
         if self.verbose {
             eprintln!("Generated {:?} assembly ({} bytes)", self.target, asm.len());

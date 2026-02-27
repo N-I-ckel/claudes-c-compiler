@@ -1,12 +1,12 @@
 //! I686Codegen: function call operations (cdecl calling convention).
 
-use crate::ir::reexports::{Operand, Value};
-use crate::common::types::IrType;
-use crate::backend::call_abi;
-use crate::emit;
-use crate::backend::traits::ArchCodegen;
 use super::emit::I686Codegen;
+use crate::backend::call_abi;
 use crate::backend::generation::is_i128_type;
+use crate::backend::traits::ArchCodegen;
+use crate::common::types::IrType;
+use crate::emit;
+use crate::ir::reexports::{Operand, Value};
 
 impl I686Codegen {
     pub(super) fn call_abi_config_impl(&self) -> call_abi::CallAbiConfig {
@@ -26,17 +26,23 @@ impl I686Codegen {
         }
     }
 
-    pub(super) fn emit_call_compute_stack_space_impl(&self, arg_classes: &[call_abi::CallArgClass], arg_types: &[IrType]) -> usize {
+    pub(super) fn emit_call_compute_stack_space_impl(
+        &self,
+        arg_classes: &[call_abi::CallArgClass],
+        arg_types: &[IrType],
+    ) -> usize {
         let mut total = 0;
         for (i, ac) in arg_classes.iter().enumerate() {
-            let ty = if i < arg_types.len() { arg_types[i] } else { IrType::I32 };
+            let ty = if i < arg_types.len() {
+                arg_types[i]
+            } else {
+                IrType::I32
+            };
             match ac {
-                call_abi::CallArgClass::Stack => {
-                    match ty {
-                        IrType::F64 | IrType::I64 | IrType::U64 => total += 8,
-                        _ => total += 4,
-                    }
-                }
+                call_abi::CallArgClass::Stack => match ty {
+                    IrType::F64 | IrType::I64 | IrType::U64 => total += 8,
+                    _ => total += 4,
+                },
                 call_abi::CallArgClass::F128Stack => total += 12,
                 call_abi::CallArgClass::I128Stack => total += 16,
                 call_abi::CallArgClass::StructByValStack { size } => total += (*size + 3) & !3,
@@ -49,13 +55,25 @@ impl I686Codegen {
         (total + 15) & !15
     }
 
-    pub(super) fn emit_call_f128_pre_convert_impl(&mut self, _args: &[Operand], _arg_classes: &[call_abi::CallArgClass], _arg_types: &[IrType], _stack_arg_space: usize) -> usize {
+    pub(super) fn emit_call_f128_pre_convert_impl(
+        &mut self,
+        _args: &[Operand],
+        _arg_classes: &[call_abi::CallArgClass],
+        _arg_types: &[IrType],
+        _stack_arg_space: usize,
+    ) -> usize {
         0 // No F128 pre-conversion needed on i686
     }
 
-    pub(super) fn emit_call_stack_args_impl(&mut self, args: &[Operand], arg_classes: &[call_abi::CallArgClass],
-                            arg_types: &[IrType], stack_arg_space: usize,
-                            _fptr_spill: usize, _f128_temp_space: usize) -> i64 {
+    pub(super) fn emit_call_stack_args_impl(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[call_abi::CallArgClass],
+        arg_types: &[IrType],
+        stack_arg_space: usize,
+        _fptr_spill: usize,
+        _f128_temp_space: usize,
+    ) -> i64 {
         if stack_arg_space > 0 {
             emit!(self.state, "    subl ${}, %esp", stack_arg_space);
             self.esp_adjust += stack_arg_space as i64;
@@ -72,8 +90,8 @@ impl I686Codegen {
                     self.emit_call_f128_stack_arg(&args[i], stack_offset);
                     stack_offset += 12;
                 }
-                call_abi::CallArgClass::StructByValStack { size } |
-                call_abi::CallArgClass::LargeStructStack { size } => {
+                call_abi::CallArgClass::StructByValStack { size }
+                | call_abi::CallArgClass::LargeStructStack { size } => {
                     let sz = *size;
                     self.emit_call_struct_stack_arg(&args[i], stack_offset, sz);
                     stack_offset += (sz + 3) & !3;
@@ -102,10 +120,16 @@ impl I686Codegen {
         stack_arg_space as i64
     }
 
-    pub(super) fn emit_call_reg_args_impl(&mut self, args: &[Operand], arg_classes: &[call_abi::CallArgClass],
-                          _arg_types: &[IrType], _total_sp_adjust: i64,
-                          _f128_temp_space: usize, _stack_arg_space: usize,
-                          _struct_arg_riscv_float_classes: &[Option<crate::common::types::RiscvFloatClass>]) {
+    pub(super) fn emit_call_reg_args_impl(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[call_abi::CallArgClass],
+        _arg_types: &[IrType],
+        _total_sp_adjust: i64,
+        _f128_temp_space: usize,
+        _stack_arg_space: usize,
+        _struct_arg_riscv_float_classes: &[Option<crate::common::types::RiscvFloatClass>],
+    ) {
         if self.regparm == 0 {
             return; // cdecl: no register args
         }
@@ -136,8 +160,13 @@ impl I686Codegen {
         }
     }
 
-    pub(super) fn emit_call_instruction_impl(&mut self, direct_name: Option<&str>, func_ptr: Option<&Operand>,
-                             indirect: bool, _stack_arg_space: usize) {
+    pub(super) fn emit_call_instruction_impl(
+        &mut self,
+        direct_name: Option<&str>,
+        func_ptr: Option<&Operand>,
+        indirect: bool,
+        _stack_arg_space: usize,
+    ) {
         if let Some(name) = direct_name {
             if self.state.needs_plt(name) {
                 emit!(self.state, "    call {}@PLT", name);
@@ -152,7 +181,12 @@ impl I686Codegen {
         }
     }
 
-    pub(super) fn emit_call_cleanup_impl(&mut self, stack_arg_space: usize, _f128_temp_space: usize, _indirect: bool) {
+    pub(super) fn emit_call_cleanup_impl(
+        &mut self,
+        stack_arg_space: usize,
+        _f128_temp_space: usize,
+        _indirect: bool,
+    ) {
         if stack_arg_space > 0 {
             emit!(self.state, "    addl ${}, %esp", stack_arg_space);
             self.esp_adjust -= stack_arg_space as i64;

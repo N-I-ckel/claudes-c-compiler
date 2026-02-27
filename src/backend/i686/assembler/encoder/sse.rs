@@ -8,13 +8,20 @@ use super::*;
 impl super::InstructionEncoder {
     // ---- SSE encoding helpers (same opcodes, no REX) ----
 
-    pub(super) fn encode_sse_rr_rm(&mut self, ops: &[Operand], load_opcode: &[u8], store_opcode: &[u8]) -> Result<(), String> {
+    pub(super) fn encode_sse_rr_rm(
+        &mut self,
+        ops: &[Operand],
+        load_opcode: &[u8],
+        store_opcode: &[u8],
+    ) -> Result<(), String> {
         if ops.len() != 2 {
             return Err("SSE mov requires 2 operands".to_string());
         }
 
         match (&ops[0], &ops[1]) {
-            (Operand::Register(src), Operand::Register(dst)) if is_xmm(&src.name) && is_xmm(&dst.name) => {
+            (Operand::Register(src), Operand::Register(dst))
+                if is_xmm(&src.name) && is_xmm(&dst.name) =>
+            {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(load_opcode);
@@ -57,12 +64,20 @@ impl super::InstructionEncoder {
         }
     }
 
-    pub(super) fn encode_sse_op_imm8(&mut self, ops: &[Operand], opcode: &[u8]) -> Result<(), String> {
+    pub(super) fn encode_sse_op_imm8(
+        &mut self,
+        ops: &[Operand],
+        opcode: &[u8],
+    ) -> Result<(), String> {
         if ops.len() != 3 {
             return Err("SSE op+imm8 requires 3 operands".to_string());
         }
         match (&ops[0], &ops[1], &ops[2]) {
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Register(src), Operand::Register(dst)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Register(src),
+                Operand::Register(dst),
+            ) => {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(opcode);
@@ -70,7 +85,11 @@ impl super::InstructionEncoder {
                 self.bytes.push(*imm as u8);
                 Ok(())
             }
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Memory(mem), Operand::Register(dst)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Memory(mem),
+                Operand::Register(dst),
+            ) => {
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(opcode);
                 self.encode_modrm_mem(dst_num, mem)?;
@@ -86,14 +105,18 @@ impl super::InstructionEncoder {
             return Err("movd requires 2 operands".to_string());
         }
         match (&ops[0], &ops[1]) {
-            (Operand::Register(src), Operand::Register(dst)) if is_xmm(&dst.name) && !is_xmm(&src.name) => {
+            (Operand::Register(src), Operand::Register(dst))
+                if is_xmm(&dst.name) && !is_xmm(&src.name) =>
+            {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(&[0x66, 0x0F, 0x6E]);
                 self.bytes.push(self.modrm(3, dst_num, src_num));
                 Ok(())
             }
-            (Operand::Register(src), Operand::Register(dst)) if is_xmm(&src.name) && !is_xmm(&dst.name) => {
+            (Operand::Register(src), Operand::Register(dst))
+                if is_xmm(&src.name) && !is_xmm(&dst.name) =>
+            {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(&[0x66, 0x0F, 0x7E]);
@@ -114,7 +137,11 @@ impl super::InstructionEncoder {
         }
     }
 
-    pub(super) fn encode_sse_cvt_gp_to_xmm(&mut self, ops: &[Operand], opcode: &[u8]) -> Result<(), String> {
+    pub(super) fn encode_sse_cvt_gp_to_xmm(
+        &mut self,
+        ops: &[Operand],
+        opcode: &[u8],
+    ) -> Result<(), String> {
         if ops.len() != 2 {
             return Err("cvt requires 2 operands".to_string());
         }
@@ -135,7 +162,11 @@ impl super::InstructionEncoder {
         }
     }
 
-    pub(super) fn encode_sse_cvt_xmm_to_gp(&mut self, ops: &[Operand], opcode: &[u8]) -> Result<(), String> {
+    pub(super) fn encode_sse_cvt_xmm_to_gp(
+        &mut self,
+        ops: &[Operand],
+        opcode: &[u8],
+    ) -> Result<(), String> {
         if ops.len() != 2 {
             return Err("cvt requires 2 operands".to_string());
         }
@@ -156,7 +187,13 @@ impl super::InstructionEncoder {
         }
     }
 
-    pub(super) fn encode_sse_shift(&mut self, ops: &[Operand], _reg_opcode: &[u8], imm_ext: u8, imm_opcode: &[u8]) -> Result<(), String> {
+    pub(super) fn encode_sse_shift(
+        &mut self,
+        ops: &[Operand],
+        _reg_opcode: &[u8],
+        imm_ext: u8,
+        imm_opcode: &[u8],
+    ) -> Result<(), String> {
         if ops.len() != 2 {
             return Err("SSE shift requires 2 operands".to_string());
         }
@@ -182,7 +219,9 @@ impl super::InstructionEncoder {
         }
         match (&ops[0], &ops[1]) {
             // movq xmm -> xmm or mem -> xmm (load): F3 0F 7E
-            (Operand::Register(src), Operand::Register(dst)) if is_xmm(&src.name) && is_xmm(&dst.name) => {
+            (Operand::Register(src), Operand::Register(dst))
+                if is_xmm(&src.name) && is_xmm(&dst.name) =>
+            {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(&[0xF3, 0x0F, 0x7E]);
@@ -201,7 +240,9 @@ impl super::InstructionEncoder {
                 self.encode_modrm_mem(src_num, mem)
             }
             // MMX movq: mm -> mm, mem -> mm, mm -> mem
-            (Operand::Register(src), Operand::Register(dst)) if is_mm(&src.name) || is_mm(&dst.name) => {
+            (Operand::Register(src), Operand::Register(dst))
+                if is_mm(&src.name) || is_mm(&dst.name) =>
+            {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 if is_mm(&dst.name) {
@@ -245,7 +286,11 @@ impl super::InstructionEncoder {
     }
 
     /// Encode SSE store-only instructions (xmm -> mem).
-    pub(super) fn encode_sse_store_only(&mut self, ops: &[Operand], opcode: &[u8]) -> Result<(), String> {
+    pub(super) fn encode_sse_store_only(
+        &mut self,
+        ops: &[Operand],
+        opcode: &[u8],
+    ) -> Result<(), String> {
         if ops.len() != 2 {
             return Err("SSE store requires 2 operands".to_string());
         }
@@ -296,7 +341,11 @@ impl super::InstructionEncoder {
             return Err("pextrw requires 3 operands".to_string());
         }
         match (&ops[0], &ops[1], &ops[2]) {
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Register(src), Operand::Register(dst)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Register(src),
+                Operand::Register(dst),
+            ) => {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(&[0x66, 0x0F, 0xC5]);
@@ -314,7 +363,11 @@ impl super::InstructionEncoder {
             return Err("pinsrw requires 3 operands".to_string());
         }
         match (&ops[0], &ops[1], &ops[2]) {
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Register(src), Operand::Register(dst)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Register(src),
+                Operand::Register(dst),
+            ) => {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(&[0x66, 0x0F, 0xC4]);
@@ -322,7 +375,11 @@ impl super::InstructionEncoder {
                 self.bytes.push(*imm as u8);
                 Ok(())
             }
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Memory(mem), Operand::Register(dst)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Memory(mem),
+                Operand::Register(dst),
+            ) => {
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(&[0x66, 0x0F, 0xC4]);
                 self.encode_modrm_mem(dst_num, mem)?;
@@ -334,12 +391,20 @@ impl super::InstructionEncoder {
     }
 
     /// Encode SSE4.1 insert (pinsrd, pinsrb): $imm8, r/m32, xmm
-    pub(super) fn encode_sse_insert(&mut self, ops: &[Operand], opcode: &[u8]) -> Result<(), String> {
+    pub(super) fn encode_sse_insert(
+        &mut self,
+        ops: &[Operand],
+        opcode: &[u8],
+    ) -> Result<(), String> {
         if ops.len() != 3 {
             return Err("pinsrX requires 3 operands".to_string());
         }
         match (&ops[0], &ops[1], &ops[2]) {
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Register(src), Operand::Register(dst)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Register(src),
+                Operand::Register(dst),
+            ) => {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(opcode);
@@ -347,7 +412,11 @@ impl super::InstructionEncoder {
                 self.bytes.push(*imm as u8);
                 Ok(())
             }
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Memory(mem), Operand::Register(dst)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Memory(mem),
+                Operand::Register(dst),
+            ) => {
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(opcode);
                 self.encode_modrm_mem(dst_num, mem)?;
@@ -359,12 +428,20 @@ impl super::InstructionEncoder {
     }
 
     /// Encode SSE4.1 extract (pextrd, pextrb): $imm8, xmm, r/m32
-    pub(super) fn encode_sse_extract(&mut self, ops: &[Operand], opcode: &[u8]) -> Result<(), String> {
+    pub(super) fn encode_sse_extract(
+        &mut self,
+        ops: &[Operand],
+        opcode: &[u8],
+    ) -> Result<(), String> {
         if ops.len() != 3 {
             return Err("pextrX requires 3 operands".to_string());
         }
         match (&ops[0], &ops[1], &ops[2]) {
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Register(src), Operand::Register(dst)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Register(src),
+                Operand::Register(dst),
+            ) => {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 let dst_num = reg_num(&dst.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(opcode);
@@ -372,7 +449,11 @@ impl super::InstructionEncoder {
                 self.bytes.push(*imm as u8);
                 Ok(())
             }
-            (Operand::Immediate(ImmediateValue::Integer(imm)), Operand::Register(src), Operand::Memory(mem)) => {
+            (
+                Operand::Immediate(ImmediateValue::Integer(imm)),
+                Operand::Register(src),
+                Operand::Memory(mem),
+            ) => {
                 let src_num = reg_num(&src.name).ok_or("bad register")?;
                 self.bytes.extend_from_slice(opcode);
                 self.encode_modrm_mem(src_num, mem)?;

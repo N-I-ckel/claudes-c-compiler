@@ -4,18 +4,21 @@
 //! in x86/linker/elf.rs, arm/linker/elf.rs, and riscv/linker/elf_read.rs.
 //! The only parameter that differed was the expected e_machine value.
 
+use super::types::{Elf64Object, Elf64Rela, Elf64Section, Elf64Symbol};
 use crate::backend::elf::{
-    ELF_MAGIC, ELFCLASS64, ELFDATA2LSB, ET_REL,
-    SHT_NOBITS, SHT_SYMTAB, SHT_RELA,
-    read_u16, read_u32, read_u64, read_i64, read_cstr,
+    read_cstr, read_i64, read_u16, read_u32, read_u64, ELFCLASS64, ELFDATA2LSB, ELF_MAGIC, ET_REL,
+    SHT_NOBITS, SHT_RELA, SHT_SYMTAB,
 };
-use super::types::{Elf64Section, Elf64Symbol, Elf64Rela, Elf64Object};
 
 /// Parse an ELF64 relocatable object file (.o).
 ///
 /// `expected_machine` is the ELF e_machine value to validate (e.g., EM_X86_64,
 /// EM_AARCH64, EM_RISCV). Pass 0 to skip machine validation.
-pub fn parse_elf64_object(data: &[u8], source_name: &str, expected_machine: u16) -> Result<Elf64Object, String> {
+pub fn parse_elf64_object(
+    data: &[u8],
+    source_name: &str,
+    expected_machine: u16,
+) -> Result<Elf64Object, String> {
     if data.len() < 64 {
         return Err(format!("{}: file too small for ELF header", source_name));
     }
@@ -31,14 +34,19 @@ pub fn parse_elf64_object(data: &[u8], source_name: &str, expected_machine: u16)
 
     let e_type = read_u16(data, 16);
     if e_type != ET_REL {
-        return Err(format!("{}: not a relocatable object (type={})", source_name, e_type));
+        return Err(format!(
+            "{}: not a relocatable object (type={})",
+            source_name, e_type
+        ));
     }
 
     if expected_machine != 0 {
         let e_machine = read_u16(data, 18);
         if e_machine != expected_machine {
-            return Err(format!("{}: wrong machine type (expected={}, got={})",
-                source_name, expected_machine, e_machine));
+            return Err(format!(
+                "{}: wrong machine type (expected={}, got={})",
+                source_name, expected_machine, e_machine
+            ));
         }
     }
 
@@ -56,7 +64,10 @@ pub fn parse_elf64_object(data: &[u8], source_name: &str, expected_machine: u16)
     for i in 0..e_shnum {
         let off = e_shoff + i * e_shentsize;
         if off + e_shentsize > data.len() {
-            return Err(format!("{}: section header {} out of bounds", source_name, i));
+            return Err(format!(
+                "{}: section header {} out of bounds",
+                source_name, i
+            ));
         }
         sections.push(Elf64Section {
             name_idx: read_u32(data, off),
@@ -95,7 +106,10 @@ pub fn parse_elf64_object(data: &[u8], source_name: &str, expected_machine: u16)
             let start = sec.offset as usize;
             let end = start + sec.size as usize;
             if end > data.len() {
-                return Err(format!("{}: section '{}' data out of bounds", source_name, sec.name));
+                return Err(format!(
+                    "{}: section '{}' data out of bounds",
+                    source_name, sec.name
+                ));
             }
             section_data.push(data[start..end].to_vec());
         }

@@ -20,17 +20,17 @@
 use super::types::*;
 
 // Submodule pass implementations
-mod helpers;
-mod local_patterns;
-mod push_pop;
+mod callee_saves;
 mod compare_branch;
 mod copy_propagation;
 mod dead_code;
-mod store_forwarding;
-mod loop_trampoline;
-mod callee_saves;
-mod memory_fold;
 mod frame_compact;
+mod helpers;
+mod local_patterns;
+mod loop_trampoline;
+mod memory_fold;
+mod push_pop;
+mod store_forwarding;
 mod tail_call;
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -59,7 +59,9 @@ const MAX_POST_GLOBAL_ITERATIONS: usize = 4;
 pub fn peephole_optimize(asm: String) -> String {
     let mut store = LineStore::new(asm);
     let line_count = store.len();
-    let mut infos: Vec<LineInfo> = (0..line_count).map(|i| classify_line(store.get(i))).collect();
+    let mut infos: Vec<LineInfo> = (0..line_count)
+        .map(|i| classify_line(store.get(i)))
+        .collect();
 
     // Phase 1: Iterative cheap local passes.
     let mut changed = true;
@@ -78,10 +80,12 @@ pub fn peephole_optimize(asm: String) -> String {
 
     // Phase 2: Expensive global passes (run once)
     let global_changed = store_forwarding::global_store_forwarding(&mut store, &mut infos);
-    let global_changed = global_changed | copy_propagation::propagate_register_copies(&mut store, &mut infos);
+    let global_changed =
+        global_changed | copy_propagation::propagate_register_copies(&mut store, &mut infos);
     let global_changed = global_changed | dead_code::eliminate_dead_reg_moves(&store, &mut infos);
     let global_changed = global_changed | dead_code::eliminate_dead_stores(&store, &mut infos);
-    let global_changed = global_changed | compare_branch::fuse_compare_and_branch(&mut store, &mut infos);
+    let global_changed =
+        global_changed | compare_branch::fuse_compare_and_branch(&mut store, &mut infos);
     // Memory operand folding: fold remaining stack loads into subsequent ALU
     // instructions as memory source operands. This runs after store forwarding
     // has already converted loads that can be forwarded from registers; the
@@ -210,7 +214,9 @@ mod tests {
             "    testq %rax, %rax",
             "    jne .LBB2",
             "    jmp .LBB4",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
         assert!(result.contains("cmpq %rcx, %rax"), "should keep the cmp");
         assert!(result.contains("jl .LBB2"), "should fuse to jl: {}", result);
@@ -226,7 +232,9 @@ mod tests {
             "    testq %rax, %rax",
             "    jne .LBB2",
             "    jmp .LBB4",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
         assert!(result.contains("jl .LBB2"), "should fuse to jl: {}", result);
         assert!(!result.contains("setl"), "should eliminate setl");
@@ -241,9 +249,15 @@ mod tests {
             "    testq %rax, %rax",
             "    je .Lfalse",
             "    jmp .Ltrue",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("jge .Lfalse"), "should fuse to jge: {}", result);
+        assert!(
+            result.contains("jge .Lfalse"),
+            "should fuse to jge: {}",
+            result
+        );
     }
 
     #[test]
@@ -252,9 +266,15 @@ mod tests {
             "    movq %rax, -24(%rbp)",
             "    movq %rcx, -32(%rbp)",
             "    movq -24(%rbp), %rax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(!result.contains("-24(%rbp), %rax"), "should eliminate the load: {}", result);
+        assert!(
+            !result.contains("-24(%rbp), %rax"),
+            "should eliminate the load: {}",
+            result
+        );
     }
 
     #[test]
@@ -263,9 +283,15 @@ mod tests {
             "    movq %rax, -24(%rbp)",
             "    movq %rcx, -32(%rbp)",
             "    movq -24(%rbp), %rdx",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("movq %rax, %rdx"), "should forward to reg-reg: {}", result);
+        assert!(
+            result.contains("movq %rax, %rdx"),
+            "should forward to reg-reg: {}",
+            result
+        );
     }
 
     #[test]
@@ -274,10 +300,15 @@ mod tests {
             "    movq %rax, -24(%rbp)",
             "    movq -32(%rbp), %rax",
             "    movq -24(%rbp), %rcx",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-24(%rbp), %rcx") || result.contains("%rax, %rcx"),
-            "should not forward since rax was modified: {}", result);
+        assert!(
+            result.contains("-24(%rbp), %rcx") || result.contains("%rax, %rcx"),
+            "should not forward since rax was modified: {}",
+            result
+        );
     }
 
     #[test]
@@ -285,31 +316,53 @@ mod tests {
         let asm = "    movslq -8(%rbp), %rax\n    cltq\n".to_string();
         let result = peephole_optimize(asm);
         assert!(result.contains("movslq"), "should keep movslq");
-        assert!(!result.contains("cltq"), "should eliminate redundant cltq: {}", result);
+        assert!(
+            !result.contains("cltq"),
+            "should eliminate redundant cltq: {}",
+            result
+        );
     }
 
     #[test]
     fn test_dead_store_elimination() {
-        let asm = [
-            "    movq %rax, -24(%rbp)",
-            "    movq %rcx, -24(%rbp)",
-        ].join("\n") + "\n";
+        let asm = ["    movq %rax, -24(%rbp)", "    movq %rcx, -24(%rbp)"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(!result.contains("%rax, -24(%rbp)"), "first store should be dead: {}", result);
-        assert!(result.contains("%rcx, -24(%rbp)"), "second store should remain: {}", result);
+        assert!(
+            !result.contains("%rax, -24(%rbp)"),
+            "first store should be dead: {}",
+            result
+        );
+        assert!(
+            result.contains("%rcx, -24(%rbp)"),
+            "second store should remain: {}",
+            result
+        );
     }
 
     #[test]
     fn test_condition_codes() {
-        for (cc, expected_jcc) in &[("e", "je"), ("ne", "jne"), ("l", "jl"), ("g", "jg"),
-                                     ("le", "jle"), ("ge", "jge"), ("b", "jb"), ("a", "ja")] {
+        for (cc, expected_jcc) in &[
+            ("e", "je"),
+            ("ne", "jne"),
+            ("l", "jl"),
+            ("g", "jg"),
+            ("le", "jle"),
+            ("ge", "jge"),
+            ("b", "jb"),
+            ("a", "ja"),
+        ] {
             let asm = format!(
                 "    cmpq %rcx, %rax\n    set{} %al\n    movzbq %al, %rax\n    testq %rax, %rax\n    jne .LBB1\n",
                 cc
             );
             let result = peephole_optimize(asm);
-            assert!(result.contains(&format!("{} .LBB1", expected_jcc)),
-                "cc={} should produce {}: {}", cc, expected_jcc, result);
+            assert!(
+                result.contains(&format!("{} .LBB1", expected_jcc)),
+                "cc={} should produce {}: {}",
+                cc,
+                expected_jcc,
+                result
+            );
         }
     }
 
@@ -320,10 +373,15 @@ mod tests {
             "    movq %rcx, -32(%rbp)",
             ".Lfallthrough:",
             "    movq -24(%rbp), %rax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(!result.contains("-24(%rbp), %rax"),
-            "should forward across fallthrough label: {}", result);
+        assert!(
+            !result.contains("-24(%rbp), %rax"),
+            "should forward across fallthrough label: {}",
+            result
+        );
     }
 
     #[test]
@@ -336,10 +394,15 @@ mod tests {
             ".Lskip:",
             "    ret",
             "    jmp .Ltarget",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-24(%rbp), %rax") || result.contains("-24(%rbp),"),
-            "should NOT forward across jump target: {}", result);
+        assert!(
+            result.contains("-24(%rbp), %rax") || result.contains("-24(%rbp),"),
+            "should NOT forward across jump target: {}",
+            result
+        );
     }
 
     #[test]
@@ -349,10 +412,15 @@ mod tests {
             "    cmpq %rcx, %rax",
             "    jne .Lother",
             "    movq -24(%rbp), %rdx",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("movq %rax, %rdx"),
-            "should forward on fallthrough after cond branch: {}", result);
+        assert!(
+            result.contains("movq %rax, %rdx"),
+            "should forward on fallthrough after cond branch: {}",
+            result
+        );
     }
 
     #[test]
@@ -361,10 +429,15 @@ mod tests {
             "    movq %rax, -24(%rbp)",
             "    callq some_func",
             "    movq -24(%rbp), %rax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-24(%rbp), %rax"),
-            "should not forward across call (rax clobbered): {}", result);
+        assert!(
+            result.contains("-24(%rbp), %rax"),
+            "should not forward across call (rax clobbered): {}",
+            result
+        );
     }
 
     #[test]
@@ -373,10 +446,15 @@ mod tests {
             "    movq %rbx, -24(%rbp)",
             "    callq some_func",
             "    movq -24(%rbp), %rbx",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(!result.contains("-24(%rbp), %rbx"),
-            "should forward callee-saved reg across call: {}", result);
+        assert!(
+            !result.contains("-24(%rbp), %rbx"),
+            "should forward callee-saved reg across call: {}",
+            result
+        );
     }
 
     #[test]
@@ -385,19 +463,38 @@ mod tests {
             "    movl %eax, -8(%rbp)",
             "    movntil %ecx, -8(%rbp)",
             "    movl -8(%rbp), %eax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-8(%rbp), %eax"),
-            "must not eliminate load after unrecognized write to same slot: {}", result);
+        assert!(
+            result.contains("-8(%rbp), %eax"),
+            "must not eliminate load after unrecognized write to same slot: {}",
+            result
+        );
     }
 
     #[test]
     fn test_classify_line() {
         let info = classify_line("    movq %rax, -8(%rbp)");
-        assert!(matches!(info.kind, LineKind::StoreRbp { reg: 0, offset: -8, size: MoveSize::Q }));
+        assert!(matches!(
+            info.kind,
+            LineKind::StoreRbp {
+                reg: 0,
+                offset: -8,
+                size: MoveSize::Q
+            }
+        ));
 
         let info = classify_line("    movq -16(%rbp), %rcx");
-        assert!(matches!(info.kind, LineKind::LoadRbp { reg: 1, offset: -16, size: MoveSize::Q }));
+        assert!(matches!(
+            info.kind,
+            LineKind::LoadRbp {
+                reg: 1,
+                offset: -16,
+                size: MoveSize::Q
+            }
+        ));
 
         let info = classify_line(".Lfoo:");
         assert_eq!(info.kind, LineKind::Label);
@@ -415,7 +512,10 @@ mod tests {
         assert_eq!(parse_rbp_offset("addq (%rbp), %rax"), 0);
         assert_eq!(parse_rbp_offset("movq 16(%rbp), %rdx"), 16);
         assert_eq!(parse_rbp_offset("movq %rax, %rcx"), RBP_OFFSET_NONE);
-        assert_eq!(parse_rbp_offset("movq -8(%rbp), -16(%rbp)"), RBP_OFFSET_NONE);
+        assert_eq!(
+            parse_rbp_offset("movq -8(%rbp), -16(%rbp)"),
+            RBP_OFFSET_NONE
+        );
         assert_eq!(parse_rbp_offset("addq -8(%rbp), -8(%rbp)"), -8);
     }
 
@@ -429,12 +529,20 @@ mod tests {
             "    testq %rax, %rax",
             "    jne .LBB8",
             "    jmp .LBB10",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-40(%rbp)"),
-            "must preserve cross-block store: {}", result);
-        assert!(result.contains("sete"),
-            "must preserve sete for cross-block store: {}", result);
+        assert!(
+            result.contains("-40(%rbp)"),
+            "must preserve cross-block store: {}",
+            result
+        );
+        assert!(
+            result.contains("sete"),
+            "must preserve sete for cross-block store: {}",
+            result
+        );
     }
 
     #[test]
@@ -445,10 +553,15 @@ mod tests {
             ".LBB21:",
             "    movq -40(%rbp), %rax",
             "    movq %rax, -160(%rbp)",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-40(%rbp), %rax"),
-            "must NOT eliminate load after indirect jump target label: {}", result);
+        assert!(
+            result.contains("-40(%rbp), %rax"),
+            "must NOT eliminate load after indirect jump target label: {}",
+            result
+        );
     }
 
     #[test]
@@ -459,10 +572,15 @@ mod tests {
             ".LBB5:",
             "    movq -40(%rbp), %rax",
             "    ret",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-40(%rbp), %rax"),
-            "must NOT eliminate load after jmpq* indirect jump target: {}", result);
+        assert!(
+            result.contains("-40(%rbp), %rax"),
+            "must NOT eliminate load after jmpq* indirect jump target: {}",
+            result
+        );
     }
 
     #[test]
@@ -476,10 +594,15 @@ mod tests {
             "    movq -40(%rbp), %rcx",
             "    movl %esi, (%rcx)",
             "    popq %rcx",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-40(%rbp), %rcx"),
-            "must NOT forward rax across rdmsr (rax clobbered by inline asm): {}", result);
+        assert!(
+            result.contains("-40(%rbp), %rcx"),
+            "must NOT forward rax across rdmsr (rax clobbered by inline asm): {}",
+            result
+        );
     }
 
     #[test]
@@ -488,10 +611,15 @@ mod tests {
             "    movq %rax, -24(%rbp)",
             "    xorl %eax, %eax ; movl $1, %ecx",
             "    movq -24(%rbp), %rax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-24(%rbp), %rax"),
-            "must not forward across multi-instruction line with ';': {}", result);
+        assert!(
+            result.contains("-24(%rbp), %rax"),
+            "must not forward across multi-instruction line with ';': {}",
+            result
+        );
     }
 
     #[test]
@@ -500,10 +628,15 @@ mod tests {
             "    movq %rax, -24(%rbp)",
             "    rdmsr",
             "    movq -24(%rbp), %rax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-24(%rbp), %rax"),
-            "must not forward across rdmsr (implicit clobber of rax/rdx): {}", result);
+        assert!(
+            result.contains("-24(%rbp), %rax"),
+            "must not forward across rdmsr (implicit clobber of rax/rdx): {}",
+            result
+        );
     }
 
     #[test]
@@ -512,10 +645,15 @@ mod tests {
             "    movq %rax, -24(%rbp)",
             "    cpuid",
             "    movq -24(%rbp), %rax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-24(%rbp), %rax"),
-            "must not forward across cpuid (implicit clobber of rax/rbx/rcx/rdx): {}", result);
+        assert!(
+            result.contains("-24(%rbp), %rax"),
+            "must not forward across cpuid (implicit clobber of rax/rbx/rcx/rdx): {}",
+            result
+        );
     }
 
     #[test]
@@ -524,10 +662,15 @@ mod tests {
             "    movl %ecx, -8(%rbp)",
             "    sete %cl",
             "    movl -8(%rbp), %eax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-8(%rbp), %eax"),
-            "must NOT forward ecx across sete %%cl (ecx clobbered): {}", result);
+        assert!(
+            result.contains("-8(%rbp), %eax"),
+            "must NOT forward ecx across sete %%cl (ecx clobbered): {}",
+            result
+        );
     }
 
     #[test]
@@ -536,10 +679,15 @@ mod tests {
             "    movq %rax, -16(%rbp)",
             "    sete %al",
             "    movq -16(%rbp), %rax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-16(%rbp), %rax"),
-            "must NOT forward rax across sete %%al (rax clobbered): {}", result);
+        assert!(
+            result.contains("-16(%rbp), %rax"),
+            "must NOT forward rax across sete %%al (rax clobbered): {}",
+            result
+        );
     }
 
     #[test]
@@ -548,10 +696,15 @@ mod tests {
             "    movq %rcx, -16(%rbp)",
             "    syscall",
             "    movq -16(%rbp), %rcx",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("-16(%rbp), %rcx"),
-            "must NOT forward rcx across syscall (rcx clobbered): {}", result);
+        assert!(
+            result.contains("-16(%rbp), %rcx"),
+            "must NOT forward rcx across syscall (rcx clobbered): {}",
+            result
+        );
     }
 
     #[test]
@@ -568,16 +721,30 @@ mod tests {
             ".LBB2:",
             "    movq %r14, %r9",
             "    jmp .LBB1",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("addq $320, %r9"),
-            "should rewrite addq to target %r9 directly: {}", result);
-        assert!(!result.contains("movq %r9, %r14"),
-            "should eliminate the initial copy: {}", result);
-        assert!(!result.contains("movq %r14, %r9"),
-            "should eliminate the trampoline copy: {}", result);
-        assert!(result.contains("jne .LBB1"),
-            "should redirect branch to loop header: {}", result);
+        assert!(
+            result.contains("addq $320, %r9"),
+            "should rewrite addq to target %r9 directly: {}",
+            result
+        );
+        assert!(
+            !result.contains("movq %r9, %r14"),
+            "should eliminate the initial copy: {}",
+            result
+        );
+        assert!(
+            !result.contains("movq %r14, %r9"),
+            "should eliminate the trampoline copy: {}",
+            result
+        );
+        assert!(
+            result.contains("jne .LBB1"),
+            "should redirect branch to loop header: {}",
+            result
+        );
     }
 
     #[test]
@@ -598,18 +765,35 @@ mod tests {
             "    movq %r14, %r9",
             "    movq %r15, %r10",
             "    jmp .LBB10",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("addq $320, %r9"),
-            "should rewrite dest addq to %r9: {}", result);
-        assert!(result.contains("addl %r8d, %r10d"),
-            "should rewrite frac addl to %r10d: {}", result);
-        assert!(!result.contains("movq %r9, %r14"),
-            "should eliminate dest copy: {}", result);
-        assert!(!result.contains("movq %r10, %r15"),
-            "should eliminate frac copy: {}", result);
-        assert!(result.contains("jne .LBB10"),
-            "should redirect branch to loop header: {}", result);
+        assert!(
+            result.contains("addq $320, %r9"),
+            "should rewrite dest addq to %r9: {}",
+            result
+        );
+        assert!(
+            result.contains("addl %r8d, %r10d"),
+            "should rewrite frac addl to %r10d: {}",
+            result
+        );
+        assert!(
+            !result.contains("movq %r9, %r14"),
+            "should eliminate dest copy: {}",
+            result
+        );
+        assert!(
+            !result.contains("movq %r10, %r15"),
+            "should eliminate frac copy: {}",
+            result
+        );
+        assert!(
+            result.contains("jne .LBB10"),
+            "should redirect branch to loop header: {}",
+            result
+        );
     }
 
     #[test]
@@ -620,16 +804,30 @@ mod tests {
             "    jmp .LBB4",
             ".LBB2:",
             "    movq %rax, %rcx",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("jge .LBB4"),
-            "should invert jl to jge: {}", result);
-        assert!(!result.contains("jl .LBB2"),
-            "should remove original jl: {}", result);
-        assert!(!result.contains("jmp .LBB4"),
-            "should remove the jmp: {}", result);
-        assert!(result.contains(".LBB2:"),
-            "should keep the label: {}", result);
+        assert!(
+            result.contains("jge .LBB4"),
+            "should invert jl to jge: {}",
+            result
+        );
+        assert!(
+            !result.contains("jl .LBB2"),
+            "should remove original jl: {}",
+            result
+        );
+        assert!(
+            !result.contains("jmp .LBB4"),
+            "should remove the jmp: {}",
+            result
+        );
+        assert!(
+            result.contains(".LBB2:"),
+            "should keep the label: {}",
+            result
+        );
     }
 
     #[test]
@@ -640,12 +838,20 @@ mod tests {
             "    jmp .Lfalse",
             ".Ltrue:",
             "    ret",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("jne .Lfalse"),
-            "should invert je to jne: {}", result);
-        assert!(!result.contains("jmp .Lfalse"),
-            "should remove the jmp: {}", result);
+        assert!(
+            result.contains("jne .Lfalse"),
+            "should invert je to jne: {}",
+            result
+        );
+        assert!(
+            !result.contains("jmp .Lfalse"),
+            "should remove the jmp: {}",
+            result
+        );
     }
 
     #[test]
@@ -656,18 +862,27 @@ mod tests {
             "    jmp .LBB4",
             ".LBB2:",
             "    movq %rax, %rcx",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("jl .LBB5"),
-            "should keep jl when not fallthrough: {}", result);
+        assert!(
+            result.contains("jl .LBB5"),
+            "should keep jl when not fallthrough: {}",
+            result
+        );
     }
 
     #[test]
     fn test_back_to_back_cltq() {
         let asm = "    cltq\n    cltq\n".to_string();
         let result = peephole_optimize(asm);
-        assert_eq!(result.matches("cltq").count(), 1,
-            "should keep only one cltq: {}", result);
+        assert_eq!(
+            result.matches("cltq").count(),
+            1,
+            "should keep only one cltq: {}",
+            result
+        );
     }
 
     #[test]
@@ -676,34 +891,38 @@ mod tests {
             "    movslq -8(%rbp), %rax",
             "    movq %rax, %r8",
             "    cltq",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert!(!result.contains("cltq"),
-            "cltq should be eliminated after movslq past non-rax-write: {}", result);
+        assert!(
+            !result.contains("cltq"),
+            "cltq should be eliminated after movslq past non-rax-write: {}",
+            result
+        );
     }
 
     #[test]
     fn test_cltq_backward_scan_blocked_by_rax_write() {
-        let asm = [
-            "    movslq -8(%rbp), %rax",
-            "    addl $1, %eax",
-            "    cltq",
-        ].join("\n") + "\n";
+        let asm = ["    movslq -8(%rbp), %rax", "    addl $1, %eax", "    cltq"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("cltq"),
-            "cltq should NOT be eliminated when rax is modified: {}", result);
+        assert!(
+            result.contains("cltq"),
+            "cltq should NOT be eliminated when rax is modified: {}",
+            result
+        );
     }
 
     #[test]
     fn test_cltq_backward_scan_blocked_by_call() {
-        let asm = [
-            "    cltq",
-            "    call foo",
-            "    cltq",
-        ].join("\n") + "\n";
+        let asm = ["    cltq", "    call foo", "    cltq"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert_eq!(result.matches("cltq").count(), 2,
-            "both cltq should survive when call intervenes: {}", result);
+        assert_eq!(
+            result.matches("cltq").count(),
+            2,
+            "both cltq should survive when call intervenes: {}",
+            result
+        );
     }
 
     #[test]
@@ -713,136 +932,144 @@ mod tests {
             "    movq %rax, -16(%rbp)",
             "    movq %rax, %r9",
             "    cltq",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert_eq!(result.matches("cltq").count(), 1,
-            "second cltq should be eliminated past store and mov: {}", result);
+        assert_eq!(
+            result.matches("cltq").count(),
+            1,
+            "second cltq should be eliminated past store and mov: {}",
+            result
+        );
     }
 
     // ── Memory operand folding tests ──────────────────────────────────────
 
     #[test]
     fn test_mem_fold_addq_rcx() {
-        let asm = [
-            "    movq -48(%rbp), %rcx",
-            "    addq %rcx, %rax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -48(%rbp), %rcx", "    addq %rcx, %rax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("addq -48(%rbp), %rax"),
-            "should fold load+add into memory operand: {}", result);
-        assert!(!result.contains("movq -48(%rbp), %rcx"),
-            "load should be eliminated: {}", result);
+        assert!(
+            result.contains("addq -48(%rbp), %rax"),
+            "should fold load+add into memory operand: {}",
+            result
+        );
+        assert!(
+            !result.contains("movq -48(%rbp), %rcx"),
+            "load should be eliminated: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_subl_ecx() {
-        let asm = [
-            "    movq -64(%rbp), %rcx",
-            "    subl %ecx, %eax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -64(%rbp), %rcx", "    subl %ecx, %eax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("subl -64(%rbp), %eax"),
-            "should fold load+sub into memory operand: {}", result);
+        assert!(
+            result.contains("subl -64(%rbp), %eax"),
+            "should fold load+sub into memory operand: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_cmpq_rcx() {
-        let asm = [
-            "    movq -8(%rbp), %rcx",
-            "    cmpq %rcx, %rax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -8(%rbp), %rcx", "    cmpq %rcx, %rax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("cmpq -8(%rbp), %rax"),
-            "should fold load+cmp into memory operand: {}", result);
+        assert!(
+            result.contains("cmpq -8(%rbp), %rax"),
+            "should fold load+cmp into memory operand: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_testq_rcx() {
-        let asm = [
-            "    movq -16(%rbp), %rcx",
-            "    testq %rcx, %rax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -16(%rbp), %rcx", "    testq %rcx, %rax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("testq -16(%rbp), %rax"),
-            "should fold load+test into memory operand: {}", result);
+        assert!(
+            result.contains("testq -16(%rbp), %rax"),
+            "should fold load+test into memory operand: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_no_fold_when_dest_is_loaded_reg() {
-        let asm = [
-            "    movq -48(%rbp), %rcx",
-            "    addq %rax, %rcx",
-        ].join("\n") + "\n";
+        let asm = ["    movq -48(%rbp), %rcx", "    addq %rax, %rcx"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("movq -48(%rbp), %rcx") || result.contains("addq %rax, %rcx"),
-            "should not fold when loaded reg is destination: {}", result);
+        assert!(
+            result.contains("movq -48(%rbp), %rcx") || result.contains("addq %rax, %rcx"),
+            "should not fold when loaded reg is destination: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_no_fold_for_callee_saved() {
-        let asm = [
-            "    movq -48(%rbp), %rbx",
-            "    addq %rbx, %rax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -48(%rbp), %rbx", "    addq %rbx, %rax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(!result.contains("addq -48(%rbp), %rax"),
-            "should not fold callee-saved register loads: {}", result);
+        assert!(
+            !result.contains("addq -48(%rbp), %rax"),
+            "should not fold callee-saved register loads: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_andq() {
-        let asm = [
-            "    movq -16(%rbp), %rcx",
-            "    andq %rcx, %rax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -16(%rbp), %rcx", "    andq %rcx, %rax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("andq -16(%rbp), %rax"),
-            "should fold load+and into memory operand: {}", result);
+        assert!(
+            result.contains("andq -16(%rbp), %rax"),
+            "should fold load+and into memory operand: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_xorq() {
-        let asm = [
-            "    movq -24(%rbp), %rcx",
-            "    xorq %rcx, %rax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -24(%rbp), %rcx", "    xorq %rcx, %rax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("xorq -24(%rbp), %rax"),
-            "should fold load+xor into memory operand: {}", result);
+        assert!(
+            result.contains("xorq -24(%rbp), %rax"),
+            "should fold load+xor into memory operand: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_load_rax_into_add_with_reg_dest() {
-        let asm = [
-            "    movq -32(%rbp), %rax",
-            "    addq %rax, %r12",
-        ].join("\n") + "\n";
+        let asm = ["    movq -32(%rbp), %rax", "    addq %rax, %r12"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("addq -32(%rbp), %r12"),
-            "should fold rax load into add with callee-saved dest: {}", result);
+        assert!(
+            result.contains("addq -32(%rbp), %r12"),
+            "should fold rax load into add with callee-saved dest: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_orq() {
-        let asm = [
-            "    movq -16(%rbp), %rcx",
-            "    orq %rcx, %rax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -16(%rbp), %rcx", "    orq %rcx, %rax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("orq -16(%rbp), %rax"),
-            "should fold load+or into memory operand: {}", result);
+        assert!(
+            result.contains("orq -16(%rbp), %rax"),
+            "should fold load+or into memory operand: {}",
+            result
+        );
     }
 
     #[test]
     fn test_mem_fold_with_empty_line_between() {
-        let asm = [
-            "    movq -48(%rbp), %rcx",
-            "",
-            "    addq %rcx, %rax",
-        ].join("\n") + "\n";
+        let asm = ["    movq -48(%rbp), %rcx", "", "    addq %rcx, %rax"].join("\n") + "\n";
         let result = peephole_optimize(asm);
-        assert!(result.contains("addq -48(%rbp), %rax"),
-            "should fold with empty lines between: {}", result);
+        assert!(
+            result.contains("addq -48(%rbp), %rax"),
+            "should fold with empty lines between: {}",
+            result
+        );
     }
 
     // ── Redundant xorl elimination tests ─────────────────────────────────
@@ -854,14 +1081,26 @@ mod tests {
             "    movq %rax, -8(%rbp)",
             "    xorl %eax, %eax",
             "    movq %rax, -16(%rbp)",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert_eq!(result.matches("xorl %eax, %eax").count(), 1,
-            "second xorl should be eliminated: {}", result);
-        assert!(result.contains("movq %rax, -8(%rbp)"),
-            "first store should remain: {}", result);
-        assert!(result.contains("movq %rax, -16(%rbp)"),
-            "second store should remain: {}", result);
+        assert_eq!(
+            result.matches("xorl %eax, %eax").count(),
+            1,
+            "second xorl should be eliminated: {}",
+            result
+        );
+        assert!(
+            result.contains("movq %rax, -8(%rbp)"),
+            "first store should remain: {}",
+            result
+        );
+        assert!(
+            result.contains("movq %rax, -16(%rbp)"),
+            "second store should remain: {}",
+            result
+        );
     }
 
     #[test]
@@ -875,10 +1114,16 @@ mod tests {
             "    movq %rax, -24(%rbp)",
             "    xorl %eax, %eax",
             "    movq %rax, -32(%rbp)",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert_eq!(result.matches("xorl %eax, %eax").count(), 1,
-            "only first xorl should survive: {}", result);
+        assert_eq!(
+            result.matches("xorl %eax, %eax").count(),
+            1,
+            "only first xorl should survive: {}",
+            result
+        );
     }
 
     #[test]
@@ -888,11 +1133,17 @@ mod tests {
             "    movq %rax, -8(%rbp)",
             "    movq -16(%rbp), %rax",
             "    xorl %eax, %eax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
         // The load to %rax invalidates rax_is_zero, so both xorls are needed
-        assert_eq!(result.matches("xorl %eax, %eax").count(), 2,
-            "both xorls should survive after rax modification: {}", result);
+        assert_eq!(
+            result.matches("xorl %eax, %eax").count(),
+            2,
+            "both xorls should survive after rax modification: {}",
+            result
+        );
     }
 
     #[test]
@@ -902,10 +1153,16 @@ mod tests {
             "    movq %rax, -8(%rbp)",
             ".LBB1:",
             "    xorl %eax, %eax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert_eq!(result.matches("xorl %eax, %eax").count(), 2,
-            "xorl after label should NOT be eliminated: {}", result);
+        assert_eq!(
+            result.matches("xorl %eax, %eax").count(),
+            2,
+            "xorl after label should NOT be eliminated: {}",
+            result
+        );
     }
 
     #[test]
@@ -915,10 +1172,16 @@ mod tests {
             "    movq %rax, -8(%rbp)",
             "    call some_func",
             "    xorl %eax, %eax",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
-        assert_eq!(result.matches("xorl %eax, %eax").count(), 2,
-            "xorl after call should NOT be eliminated: {}", result);
+        assert_eq!(
+            result.matches("xorl %eax, %eax").count(),
+            2,
+            "xorl after call should NOT be eliminated: {}",
+            result
+        );
     }
 }
 
@@ -964,21 +1227,23 @@ mod regression_tests {
             "    subq $160, %rsp",
             // ... setup ...
             "    movl (%rcx), %eax",
-            "    movq %rax, -144(%rbp)",       // store data[x*2]
-            "    movq -128(%rbp), %rax",       // load to+1 (clobbers rax)
-            "    movl %eax, %eax",             // truncate
-            "    movq %rax, -136(%rbp)",       // store to+1
-            "    cmpl -144(%rbp), %eax",       // memory-folded cmp (Cmp kind)
+            "    movq %rax, -144(%rbp)", // store data[x*2]
+            "    movq -128(%rbp), %rax", // load to+1 (clobbers rax)
+            "    movl %eax, %eax",       // truncate
+            "    movq %rax, -136(%rbp)", // store to+1
+            "    cmpl -144(%rbp), %eax", // memory-folded cmp (Cmp kind)
             "    setae %al",
             "    movzbq %al, %rax",
             "    movq %rax, %rsi",
             "    movq %r11, %rax",
             "    addl $1, %eax",
             "    cltq",
-            "    movq %rax, -144(%rbp)",       // later overwrite of -144
+            "    movq %rax, -144(%rbp)", // later overwrite of -144
             "    ret",
             ".size func, .-func",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
         // After optimization, there must still be a store to -144(%rbp) before
         // the cmpl that reads it. The cmpl must compare the correct value.
@@ -994,16 +1259,24 @@ mod regression_tests {
                         found_store = true;
                         break;
                     }
-                    if prev.ends_with(':') { break; }
+                    if prev.ends_with(':') {
+                        break;
+                    }
                 }
-                assert!(found_store,
-                    "cmpl -144(%rbp) has no preceding store in same block!\nResult:\n{}", result);
+                assert!(
+                    found_store,
+                    "cmpl -144(%rbp) has no preceding store in same block!\nResult:\n{}",
+                    result
+                );
                 return;
             }
         }
         // If the cmpl was not folded, check it exists in some form
-        assert!(result.contains("cmpl") || result.contains("setae"),
-            "No comparison found\nResult:\n{}", result);
+        assert!(
+            result.contains("cmpl") || result.contains("setae"),
+            "No comparison found\nResult:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -1030,7 +1303,9 @@ mod regression_tests {
             "    movq %rax, %r14",
             "    ret",
             ".size func, .-func",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
         // After optimization, rax must be loaded from rdi or from the stack
         // before the leaq instruction.
@@ -1039,10 +1314,11 @@ mod regression_tests {
         // NOT: leaq 208(%rax) with rax uninitialized!
         eprintln!("Result:\n{}", result);
         assert!(
-            result.contains("movq %rdi, %rax") || 
-            result.contains("movq -8(%rbp), %rax") ||
-            result.contains("leaq 208(%rdi)"),
-            "rax must be set from rdi before leaq 208(%rax): {}", result
+            result.contains("movq %rdi, %rax")
+                || result.contains("movq -8(%rbp), %rax")
+                || result.contains("leaq 208(%rdi)"),
+            "rax must be set from rdi before leaq 208(%rax): {}",
+            result
         );
     }
 
@@ -1085,17 +1361,25 @@ mod regression_tests {
             "    popq %rbp",
             "    ret",
             ".size func, .-func",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
         // The store to -8(%rbp) must survive because the read at -4(%rbp) overlaps it.
         // The load must also survive.
         let lines: Vec<&str> = result.lines().map(|l| l.trim()).collect();
-        let has_store = lines.iter().any(|l| l.contains("%rsi") && l.contains("(%rbp)"));
-        let has_load = lines.iter().any(|l| l.starts_with("movl") && l.contains("(%rbp)") && l.contains("%eax"));
-        assert!(has_store,
-            "store of struct param must survive frame compaction (overlapping read exists): {}", result);
-        assert!(has_load,
-            "load of struct field must survive: {}", result);
+        let has_store = lines
+            .iter()
+            .any(|l| l.contains("%rsi") && l.contains("(%rbp)"));
+        let has_load = lines
+            .iter()
+            .any(|l| l.starts_with("movl") && l.contains("(%rbp)") && l.contains("%eax"));
+        assert!(
+            has_store,
+            "store of struct param must survive frame compaction (overlapping read exists): {}",
+            result
+        );
+        assert!(has_load, "load of struct field must survive: {}", result);
     }
 
     /// Regression test: frame compaction must NOP out dead stores that conflict
@@ -1128,7 +1412,7 @@ mod regression_tests {
             "    movq %rax, -56(%rbp)",
             "    movq -56(%rbp), %rdi",
             "    call some_func",
-            "    movq %rax, -64(%rbp)",      // dead store - never read
+            "    movq %rax, -64(%rbp)", // dead store - never read
             "    movq %rax, %r14",
             // Epilogue
             "    movq %r14, %rax",
@@ -1141,22 +1425,29 @@ mod regression_tests {
             "    popq %rbp",
             "    ret",
             ".size func, .-func",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
         // After compaction:
         // - Frame should be smaller than 112
         // - Dead store at -64 should be NOP'd (not present in output)
         // - Callee saves should be at new offsets
-        assert!(result.contains("subq $"),
-            "should have subq: {}", result);
-        assert!(!result.contains("subq $112"),
-            "frame should be compacted from 112: {}", result);
+        assert!(result.contains("subq $"), "should have subq: {}", result);
+        assert!(
+            !result.contains("subq $112"),
+            "frame should be compacted from 112: {}",
+            result
+        );
         // The dead store to -64 must not appear in the output
         // (it would clobber the relocated callee save)
-        assert!(!result.contains("-64(%rbp)") ||
+        assert!(
+            !result.contains("-64(%rbp)") ||
                 // -64 might appear as a new callee-save offset in saves/restores which is OK
                 (result.contains("movq %r15, -64(%rbp)") || result.contains("movq -64(%rbp), %r15")),
-            "dead store to -64 must be eliminated or -64 used only for callee save: {}", result);
+            "dead store to -64 must be eliminated or -64 used only for callee save: {}",
+            result
+        );
     }
 
     /// Regression test: a struct stored with movq at -8(%rbp) that is read
@@ -1194,11 +1485,15 @@ mod regression_tests {
             "    popq %rbp",
             "    ret",
             ".size release_entry, .-release_entry",
-        ].join("\n") + "\n";
+        ]
+        .join("\n")
+            + "\n";
         let result = peephole_optimize(asm);
         // The struct store at -8(%rbp) must be preserved because -4(%rbp) is read
-        assert!(result.contains("movq %rsi, -8(%rbp)"),
-            "struct param store at -8(%rbp) must NOT be NOP'd when -4(%rbp) is read: {}", result);
+        assert!(
+            result.contains("movq %rsi, -8(%rbp)"),
+            "struct param store at -8(%rbp) must NOT be NOP'd when -4(%rbp) is read: {}",
+            result
+        );
     }
 }
-

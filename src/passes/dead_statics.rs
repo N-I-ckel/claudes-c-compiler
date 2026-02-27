@@ -29,9 +29,16 @@ pub(crate) fn eliminate_dead_static_functions(module: &mut IrModule) {
 
     // Phase 4: Reachability BFS from roots, including address-taken functions.
     let reachable = compute_reachability(
-        module, &func_id, &global_id, &id_func_idx, &id_global_idx,
-        &func_refs, &global_refs_lists, &address_taken,
-        &mut name_to_id, &mut next_id,
+        module,
+        &func_id,
+        &global_id,
+        &id_func_idx,
+        &id_global_idx,
+        &func_refs,
+        &global_refs_lists,
+        &address_taken,
+        &mut name_to_id,
+        &mut next_id,
     );
 
     // Drop the borrow on module strings so we can mutate module below.
@@ -46,10 +53,15 @@ pub(crate) fn eliminate_dead_static_functions(module: &mut IrModule) {
 
 /// Phase 1: Assign compact integer IDs to all function and global names.
 /// Returns (name_to_id, next_id, id_func_idx, id_global_idx, func_id, global_id).
-fn build_symbol_index(module: &IrModule) -> (
-    FxHashMap<&str, u32>, u32,
-    Vec<Option<usize>>, Vec<Option<usize>>,
-    Vec<u32>, Vec<u32>,
+fn build_symbol_index(
+    module: &IrModule,
+) -> (
+    FxHashMap<&str, u32>,
+    u32,
+    Vec<Option<usize>>,
+    Vec<Option<usize>>,
+    Vec<u32>,
+    Vec<u32>,
 ) {
     let mut name_to_id: FxHashMap<&str, u32> = FxHashMap::default();
     let mut next_id: u32 = 0;
@@ -82,11 +94,22 @@ fn build_symbol_index(module: &IrModule) -> (
         global_id.push(id);
     }
 
-    (name_to_id, next_id, id_func_idx, id_global_idx, func_id, global_id)
+    (
+        name_to_id,
+        next_id,
+        id_func_idx,
+        id_global_idx,
+        func_id,
+        global_id,
+    )
 }
 
 /// Look up or create an ID for a name that may not already exist.
-fn get_or_create_id<'a>(name: &'a str, name_to_id: &mut FxHashMap<&'a str, u32>, next_id: &mut u32) -> u32 {
+fn get_or_create_id<'a>(
+    name: &'a str,
+    name_to_id: &mut FxHashMap<&'a str, u32>,
+    next_id: &mut u32,
+) -> u32 {
     *name_to_id.entry(name).or_insert_with(|| {
         let id = *next_id;
         *next_id += 1;
@@ -95,7 +118,11 @@ fn get_or_create_id<'a>(name: &'a str, name_to_id: &mut FxHashMap<&'a str, u32>,
 }
 
 /// Phase 2a: Build per-function reference lists using symbol IDs.
-fn build_func_refs<'a>(module: &'a IrModule, name_to_id: &mut FxHashMap<&'a str, u32>, next_id: &mut u32) -> Vec<Vec<u32>> {
+fn build_func_refs<'a>(
+    module: &'a IrModule,
+    name_to_id: &mut FxHashMap<&'a str, u32>,
+    next_id: &mut u32,
+) -> Vec<Vec<u32>> {
     let mut func_refs: Vec<Vec<u32>> = Vec::with_capacity(module.functions.len());
     for func in &module.functions {
         if func.is_declaration {
@@ -114,7 +141,11 @@ fn build_func_refs<'a>(module: &'a IrModule, name_to_id: &mut FxHashMap<&'a str,
 }
 
 /// Phase 2b: Build per-global reference lists from initializers.
-fn build_global_refs(module: &IrModule, name_to_id: &mut FxHashMap<&str, u32>, next_id: &mut u32) -> Vec<Vec<u32>> {
+fn build_global_refs(
+    module: &IrModule,
+    name_to_id: &mut FxHashMap<&str, u32>,
+    next_id: &mut u32,
+) -> Vec<Vec<u32>> {
     let mut global_refs_lists: Vec<Vec<u32>> = Vec::with_capacity(module.globals.len());
     for global in &module.globals {
         let mut id_refs = Vec::new();
@@ -137,7 +168,9 @@ fn build_global_refs(module: &IrModule, name_to_id: &mut FxHashMap<&str, u32>, n
 /// Mark a symbol ID as reachable if not already, growing the reachable vec as needed.
 fn mark_reachable(id: u32, reachable: &mut Vec<bool>, worklist: &mut Vec<u32>, next_id: u32) {
     let idx = id as usize;
-    if idx >= reachable.len() { reachable.resize(next_id as usize, false); }
+    if idx >= reachable.len() {
+        reachable.resize(next_id as usize, false);
+    }
     if !reachable[idx] {
         reachable[idx] = true;
         worklist.push(id);
@@ -151,18 +184,24 @@ fn mark_reachable(id: u32, reachable: &mut Vec<bool>, worklist: &mut Vec<u32>, n
 /// (which survive dead elimination because they're used as function pointers).
 fn compute_reachability<'a>(
     module: &'a IrModule,
-    func_id: &[u32], global_id: &[u32],
-    id_func_idx: &[Option<usize>], id_global_idx: &[Option<usize>],
-    func_refs: &[Vec<u32>], global_refs_lists: &[Vec<u32>],
+    func_id: &[u32],
+    global_id: &[u32],
+    id_func_idx: &[Option<usize>],
+    id_global_idx: &[Option<usize>],
+    func_refs: &[Vec<u32>],
+    global_refs_lists: &[Vec<u32>],
     address_taken: &[bool],
-    name_to_id: &mut FxHashMap<&'a str, u32>, next_id: &mut u32,
+    name_to_id: &mut FxHashMap<&'a str, u32>,
+    next_id: &mut u32,
 ) -> Vec<bool> {
     let mut reachable = vec![false; *next_id as usize];
     let mut worklist: Vec<u32> = Vec::new();
 
     // Roots: non-static functions
     for (i, func) in module.functions.iter().enumerate() {
-        if func.is_declaration { continue; }
+        if func.is_declaration {
+            continue;
+        }
         if !func.is_static || func.is_used {
             mark_reachable(func_id[i], &mut reachable, &mut worklist, *next_id);
         }
@@ -170,7 +209,9 @@ fn compute_reachability<'a>(
 
     // Roots: non-static globals
     for (i, global) in module.globals.iter().enumerate() {
-        if global.is_extern { continue; }
+        if global.is_extern {
+            continue;
+        }
         if !global.is_static || global.is_common || global.is_used {
             mark_reachable(global_id[i], &mut reachable, &mut worklist, *next_id);
         }
@@ -202,7 +243,9 @@ fn compute_reachability<'a>(
     // These survive dead elimination (Phase 5) because their address is used as a
     // function pointer, so their referenced globals/functions must also survive.
     for (i, func) in module.functions.iter().enumerate() {
-        if func.is_declaration { continue; }
+        if func.is_declaration {
+            continue;
+        }
         if func.is_static && func.is_always_inline {
             let fid = func_id[i] as usize;
             if fid < address_taken.len() && address_taken[fid] {
@@ -216,7 +259,12 @@ fn compute_reachability<'a>(
         for (i, func) in module.functions.iter().enumerate() {
             if func.is_static && !func.is_declaration {
                 let fid = func_id[i] as usize;
-                if !reachable[fid] && module.toplevel_asm.iter().any(|s| s.contains(func.name.as_str())) {
+                if !reachable[fid]
+                    && module
+                        .toplevel_asm
+                        .iter()
+                        .any(|s| s.contains(func.name.as_str()))
+                {
                     reachable[fid] = true;
                     worklist.push(fid as u32);
                 }
@@ -225,7 +273,12 @@ fn compute_reachability<'a>(
         for (i, global) in module.globals.iter().enumerate() {
             if global.is_static && !global.is_extern {
                 let gid = global_id[i] as usize;
-                if !reachable[gid] && module.toplevel_asm.iter().any(|s| s.contains(global.name.as_str())) {
+                if !reachable[gid]
+                    && module
+                        .toplevel_asm
+                        .iter()
+                        .any(|s| s.contains(global.name.as_str()))
+                {
                     reachable[gid] = true;
                     worklist.push(gid as u32);
                 }
@@ -268,11 +321,17 @@ fn compute_reachability<'a>(
 }
 
 /// Phase 3: Build address_taken bitvector from GlobalAddr and InlineAsm instructions.
-fn build_address_taken<'a>(module: &'a IrModule, name_to_id: &FxHashMap<&'a str, u32>, len: usize) -> Vec<bool> {
+fn build_address_taken<'a>(
+    module: &'a IrModule,
+    name_to_id: &FxHashMap<&'a str, u32>,
+    len: usize,
+) -> Vec<bool> {
     let mut address_taken = vec![false; len];
 
     for func in &module.functions {
-        if func.is_declaration { continue; }
+        if func.is_declaration {
+            continue;
+        }
         for block in &func.blocks {
             for inst in &block.instructions {
                 match inst {
@@ -313,18 +372,28 @@ fn build_address_taken<'a>(module: &'a IrModule, name_to_id: &FxHashMap<&'a str,
 }
 
 /// Phase 5: Remove unreachable static functions and globals.
-fn remove_unreachable(module: &mut IrModule, func_id: &[u32], global_id: &[u32], reachable: &[bool], address_taken: &[bool]) {
+fn remove_unreachable(
+    module: &mut IrModule,
+    func_id: &[u32],
+    global_id: &[u32],
+    reachable: &[bool],
+    address_taken: &[bool],
+) {
     let mut func_pos = 0usize;
     module.functions.retain(|func| {
         let pos = func_pos;
         func_pos += 1;
-        if func.is_declaration { return true; }
+        if func.is_declaration {
+            return true;
+        }
         let id = func_id[pos] as usize;
         if func.is_static && func.is_always_inline {
             return (id < address_taken.len() && address_taken[id])
                 || (id < reachable.len() && reachable[id]);
         }
-        if !func.is_static { return true; }
+        if !func.is_static {
+            return true;
+        }
         id < reachable.len() && reachable[id]
     });
 
@@ -332,9 +401,15 @@ fn remove_unreachable(module: &mut IrModule, func_id: &[u32], global_id: &[u32],
     module.globals.retain(|global| {
         let pos = global_pos;
         global_pos += 1;
-        if global.is_extern { return true; }
-        if !global.is_static { return true; }
-        if global.is_common { return true; }
+        if global.is_extern {
+            return true;
+        }
+        if !global.is_static {
+            return true;
+        }
+        if global.is_common {
+            return true;
+        }
         let id = global_id[pos] as usize;
         id < reachable.len() && reachable[id]
     });
@@ -345,7 +420,9 @@ fn remove_unreachable(module: &mut IrModule, func_id: &[u32], global_id: &[u32],
 fn filter_symbol_attrs(module: &mut IrModule) {
     let mut referenced_symbols: FxHashSet<&str> = FxHashSet::default();
     for func in &module.functions {
-        if func.is_declaration { continue; }
+        if func.is_declaration {
+            continue;
+        }
         for block in &func.blocks {
             for inst in &block.instructions {
                 match inst {

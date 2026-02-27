@@ -1,12 +1,14 @@
 //! X86Codegen: prologue, epilogue, parameter storage.
 
-use crate::ir::reexports::{IrFunction, Instruction, Value};
-use crate::common::types::IrType;
-use crate::backend::call_abi::{ParamClass, classify_params};
+use super::emit::{
+    collect_inline_asm_callee_saved_x86, phys_reg_name, X86Codegen, X86_ARG_REGS, X86_CALLEE_SAVED,
+    X86_CALLER_SAVED,
+};
+use crate::backend::call_abi::{classify_params, ParamClass};
 use crate::backend::generation::{calculate_stack_space_common, find_param_alloca};
 use crate::backend::regalloc::PhysReg;
-use super::emit::{X86Codegen, X86_CALLEE_SAVED, X86_CALLER_SAVED, phys_reg_name,
-                     collect_inline_asm_callee_saved_x86, X86_ARG_REGS};
+use crate::common::types::IrType;
+use crate::ir::reexports::{Instruction, IrFunction, Value};
 
 impl X86Codegen {
     pub(super) fn calculate_stack_space_impl(&mut self, func: &IrFunction) -> i64 {
@@ -35,7 +37,10 @@ impl X86Codegen {
         // skip allocating stack slots for values assigned to registers.
         let mut asm_clobbered_regs: Vec<PhysReg> = Vec::new();
         collect_inline_asm_callee_saved_x86(func, &mut asm_clobbered_regs);
-        let available_regs = crate::backend::generation::filter_available_regs(&X86_CALLEE_SAVED, &asm_clobbered_regs);
+        let available_regs = crate::backend::generation::filter_available_regs(
+            &X86_CALLEE_SAVED,
+            &asm_clobbered_regs,
+        );
 
         let mut caller_saved_regs = X86_CALLER_SAVED.to_vec();
         let mut has_indirect_call = false;
@@ -44,26 +49,29 @@ impl X86Codegen {
         for block in &func.blocks {
             for inst in &block.instructions {
                 match inst {
-                    Instruction::CallIndirect { .. } => { has_indirect_call = true; }
-                    Instruction::BinOp { ty, .. }
-                    | Instruction::UnaryOp { ty, .. } => {
+                    Instruction::CallIndirect { .. } => {
+                        has_indirect_call = true;
+                    }
+                    Instruction::BinOp { ty, .. } | Instruction::UnaryOp { ty, .. } => {
                         if matches!(ty, IrType::I128 | IrType::U128) {
                             has_i128_ops = true;
                         }
                     }
                     Instruction::Cast { from_ty, to_ty, .. } => {
                         if matches!(from_ty, IrType::I128 | IrType::U128)
-                            || matches!(to_ty, IrType::I128 | IrType::U128) {
+                            || matches!(to_ty, IrType::I128 | IrType::U128)
+                        {
                             has_i128_ops = true;
                         }
                     }
-                    Instruction::Cmp { ty, .. }
-                    | Instruction::Store { ty, .. } => {
+                    Instruction::Cmp { ty, .. } | Instruction::Store { ty, .. } => {
                         if matches!(ty, IrType::I128 | IrType::U128) {
                             has_i128_ops = true;
                         }
                     }
-                    Instruction::AtomicRmw { .. } => { has_atomic_rmw = true; }
+                    Instruction::AtomicRmw { .. } => {
+                        has_atomic_rmw = true;
+                    }
                     _ => {}
                 }
             }
@@ -72,24 +80,40 @@ impl X86Codegen {
             caller_saved_regs.retain(|r| r.0 != 11); // r10 = PhysReg(11)
         }
         if has_i128_ops {
-            caller_saved_regs.retain(|r| r.0 != 12 && r.0 != 13 && r.0 != 14 && r.0 != 15); // r8, r9, rdi, rsi
+            caller_saved_regs.retain(|r| r.0 != 12 && r.0 != 13 && r.0 != 14 && r.0 != 15);
+            // r8, r9, rdi, rsi
         }
         if has_atomic_rmw {
             caller_saved_regs.retain(|r| r.0 != 12); // r8
         }
 
-        let (reg_assigned, cached_liveness) = crate::backend::generation::run_regalloc_and_merge_clobbers(
-            func, available_regs, caller_saved_regs, &asm_clobbered_regs,
-            &mut self.reg_assignments, &mut self.used_callee_saved,
+        let (reg_assigned, cached_liveness) =
+            crate::backend::generation::run_regalloc_and_merge_clobbers(
+                func,
+                available_regs,
+                caller_saved_regs,
+                &asm_clobbered_regs,
+                &mut self.reg_assignments,
+                &mut self.used_callee_saved,
+                false,
+            );
+
+        let mut space = calculate_stack_space_common(
+            &mut self.state,
+            func,
+            0,
+            |space, alloc_size, align| {
+                let effective_align = if align > 0 { align.max(8) } else { 8 };
+                let alloc = (alloc_size + 7) & !7;
+                let new_space =
+                    ((space + alloc + effective_align - 1) / effective_align) * effective_align;
+                (-new_space, new_space)
+            },
+            &reg_assigned,
+            &X86_CALLEE_SAVED,
+            cached_liveness,
             false,
         );
-
-        let mut space = calculate_stack_space_common(&mut self.state, func, 0, |space, alloc_size, align| {
-            let effective_align = if align > 0 { align.max(8) } else { 8 };
-            let alloc = (alloc_size + 7) & !7;
-            let new_space = ((space + alloc + effective_align - 1) / effective_align) * effective_align;
-            (-new_space, new_space)
-        }, &reg_assigned, &X86_CALLEE_SAVED, cached_liveness, false);
 
         if func.is_variadic {
             if self.no_sse {
@@ -105,7 +129,11 @@ impl X86Codegen {
     }
 
     pub(super) fn aligned_frame_size_impl(&self, raw_space: i64) -> i64 {
-        if raw_space > 0 { (raw_space + 15) & !15 } else { 0 }
+        if raw_space > 0 {
+            (raw_space + 15) & !15
+        } else {
+            0
+        }
     }
 
     pub(super) fn emit_prologue_impl(&mut self, func: &IrFunction, frame_size: i64) {
@@ -127,17 +155,27 @@ impl X86Codegen {
             const PAGE_SIZE: i64 = 4096;
             if frame_size > PAGE_SIZE {
                 let probe_label = self.state.fresh_label("stack_probe");
-                self.state.out.emit_instr_imm_reg("    movq", frame_size, "r11");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    movq", frame_size, "r11");
                 self.state.out.emit_named_label(&probe_label);
-                self.state.out.emit_instr_imm_reg("    subq", PAGE_SIZE, "rsp");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    subq", PAGE_SIZE, "rsp");
                 self.state.emit("    orl $0, (%rsp)");
-                self.state.out.emit_instr_imm_reg("    subq", PAGE_SIZE, "r11");
-                self.state.out.emit_instr_imm_reg("    cmpq", PAGE_SIZE, "r11");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    subq", PAGE_SIZE, "r11");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    cmpq", PAGE_SIZE, "r11");
                 self.state.out.emit_jcc_label("    ja", &probe_label);
                 self.state.emit("    subq %r11, %rsp");
                 self.state.emit("    orl $0, (%rsp)");
             } else {
-                self.state.out.emit_instr_imm_reg("    subq", frame_size, "rsp");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    subq", frame_size, "rsp");
             }
         }
 
@@ -145,20 +183,36 @@ impl X86Codegen {
         for (i, &reg) in used_regs.iter().enumerate() {
             let offset = -frame_size + (i as i64 * 8);
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_rbp("    movq", reg_name, offset);
+            self.state
+                .out
+                .emit_instr_reg_rbp("    movq", reg_name, offset);
         }
 
         if func.is_variadic {
             let base = self.reg_save_area_offset;
             self.state.out.emit_instr_reg_rbp("    movq", "rdi", base);
-            self.state.out.emit_instr_reg_rbp("    movq", "rsi", base + 8);
-            self.state.out.emit_instr_reg_rbp("    movq", "rdx", base + 16);
-            self.state.out.emit_instr_reg_rbp("    movq", "rcx", base + 24);
-            self.state.out.emit_instr_reg_rbp("    movq", "r8", base + 32);
-            self.state.out.emit_instr_reg_rbp("    movq", "r9", base + 40);
+            self.state
+                .out
+                .emit_instr_reg_rbp("    movq", "rsi", base + 8);
+            self.state
+                .out
+                .emit_instr_reg_rbp("    movq", "rdx", base + 16);
+            self.state
+                .out
+                .emit_instr_reg_rbp("    movq", "rcx", base + 24);
+            self.state
+                .out
+                .emit_instr_reg_rbp("    movq", "r8", base + 32);
+            self.state
+                .out
+                .emit_instr_reg_rbp("    movq", "r9", base + 40);
             if !self.no_sse {
                 for i in 0..8i64 {
-                    self.state.emit_fmt(format_args!("    movdqu %xmm{}, {}(%rbp)", i, base + 48 + i * 16));
+                    self.state.emit_fmt(format_args!(
+                        "    movdqu %xmm{}, {}(%rbp)",
+                        i,
+                        base + 48 + i * 16
+                    ));
                 }
             }
         }
@@ -169,25 +223,30 @@ impl X86Codegen {
         for (i, &reg) in used_regs.iter().enumerate() {
             let offset = -frame_size + (i as i64 * 8);
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_rbp_reg("    movq", offset, reg_name);
+            self.state
+                .out
+                .emit_instr_rbp_reg("    movq", offset, reg_name);
         }
         self.state.emit("    movq %rbp, %rsp");
         self.state.emit("    popq %rbp");
     }
 
     pub(super) fn emit_store_params_impl(&mut self, func: &IrFunction) {
-        let xmm_regs = ["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"];
+        let xmm_regs = [
+            "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+        ];
         let config = self.call_abi_config_impl();
         let param_classes = classify_params(func, &config);
         self.state.param_classes = param_classes.clone();
         self.state.num_params = func.params.len();
         self.state.func_is_variadic = func.is_variadic;
 
-        self.state.param_alloca_slots = (0..func.params.len()).map(|i| {
-            find_param_alloca(func, i).and_then(|(dest, ty)| {
-                self.state.get_slot(dest.0).map(|slot| (slot, ty))
+        self.state.param_alloca_slots = (0..func.params.len())
+            .map(|i| {
+                find_param_alloca(func, i)
+                    .and_then(|(dest, ty)| self.state.get_slot(dest.0).map(|slot| (slot, ty)))
             })
-        }).collect();
+            .collect();
 
         // Build a map of param_idx -> ParamRef dest Value for fast lookup.
         // This is used to optimize parameter storage: when the ParamRef dest
@@ -196,7 +255,10 @@ impl X86Codegen {
         let mut paramref_dests: Vec<Option<Value>> = vec![None; func.params.len()];
         for block in &func.blocks {
             for inst in &block.instructions {
-                if let Instruction::ParamRef { dest, param_idx, .. } = inst {
+                if let Instruction::ParamRef {
+                    dest, param_idx, ..
+                } = inst
+                {
                     if *param_idx < paramref_dests.len() {
                         paramref_dests[*param_idx] = Some(*dest);
                     }
@@ -208,7 +270,8 @@ impl X86Codegen {
 
         // Build a map from physical register -> list of param indices that use it,
         // so we can detect when two params share the same callee-saved register.
-        let mut reg_to_params: crate::common::fx_hash::FxHashMap<u8, Vec<usize>> = crate::common::fx_hash::FxHashMap::default();
+        let mut reg_to_params: crate::common::fx_hash::FxHashMap<u8, Vec<usize>> =
+            crate::common::fx_hash::FxHashMap::default();
         for (i, _) in func.params.iter().enumerate() {
             if let Some(paramref_dest) = paramref_dests[i] {
                 if let Some(&phys_reg) = self.reg_assignments.get(&paramref_dest.0) {
@@ -242,13 +305,17 @@ impl X86Codegen {
                         if is_callee_saved {
                             // Safety check: if another param's dest is also assigned
                             // to this register, skip pre-store to avoid conflicts.
-                            let shared = reg_to_params.get(&phys_reg.0)
+                            let shared = reg_to_params
+                                .get(&phys_reg.0)
                                 .is_some_and(|users| users.len() > 1);
                             if !shared {
                                 let dest_reg = phys_reg_name(phys_reg);
                                 if let ParamClass::IntReg { reg_idx } = class {
                                     self.state.out.emit_instr_reg_reg(
-                                        "    movq", X86_ARG_REGS[reg_idx], dest_reg);
+                                        "    movq",
+                                        X86_ARG_REGS[reg_idx],
+                                        dest_reg,
+                                    );
                                     self.state.param_pre_stored.insert(i);
                                 } // TODO: handle StackSlot/SSE params
                             }
@@ -277,39 +344,89 @@ impl X86Codegen {
                     // uninitialized memory and trigger valgrind errors.
                     // The typed load in emit_param_ref_impl correctly extracts only the
                     // meaningful bytes (e.g., movslq for I32).
-                    self.state.out.emit_instr_reg_rbp("    movq", X86_ARG_REGS[reg_idx], slot.0);
+                    self.state
+                        .out
+                        .emit_instr_reg_rbp("    movq", X86_ARG_REGS[reg_idx], slot.0);
                 }
                 ParamClass::FloatReg { reg_idx } => {
                     if ty == IrType::F32 {
-                        self.state.out.emit_instr_reg_reg("    movd", xmm_regs[reg_idx], "eax");
+                        self.state
+                            .out
+                            .emit_instr_reg_reg("    movd", xmm_regs[reg_idx], "eax");
                         self.state.out.emit_instr_reg_rbp("    movq", "rax", slot.0);
                     } else {
-                        self.state.out.emit_instr_reg_rbp("    movq", xmm_regs[reg_idx], slot.0);
+                        self.state
+                            .out
+                            .emit_instr_reg_rbp("    movq", xmm_regs[reg_idx], slot.0);
                     }
                 }
                 ParamClass::I128RegPair { base_reg_idx } => {
-                    self.state.out.emit_instr_reg_rbp("    movq", X86_ARG_REGS[base_reg_idx], slot.0);
-                    self.state.out.emit_instr_reg_rbp("    movq", X86_ARG_REGS[base_reg_idx + 1], slot.0 + 8);
+                    self.state.out.emit_instr_reg_rbp(
+                        "    movq",
+                        X86_ARG_REGS[base_reg_idx],
+                        slot.0,
+                    );
+                    self.state.out.emit_instr_reg_rbp(
+                        "    movq",
+                        X86_ARG_REGS[base_reg_idx + 1],
+                        slot.0 + 8,
+                    );
                 }
                 ParamClass::StructByValReg { base_reg_idx, size } => {
-                    self.state.out.emit_instr_reg_rbp("    movq", X86_ARG_REGS[base_reg_idx], slot.0);
+                    self.state.out.emit_instr_reg_rbp(
+                        "    movq",
+                        X86_ARG_REGS[base_reg_idx],
+                        slot.0,
+                    );
                     if size > 8 {
-                        self.state.out.emit_instr_reg_rbp("    movq", X86_ARG_REGS[base_reg_idx + 1], slot.0 + 8);
+                        self.state.out.emit_instr_reg_rbp(
+                            "    movq",
+                            X86_ARG_REGS[base_reg_idx + 1],
+                            slot.0 + 8,
+                        );
                     }
                 }
-                ParamClass::StructSseReg { lo_fp_idx, hi_fp_idx, .. } => {
-                    self.state.out.emit_instr_reg_rbp("    movq", xmm_regs[lo_fp_idx], slot.0);
+                ParamClass::StructSseReg {
+                    lo_fp_idx,
+                    hi_fp_idx,
+                    ..
+                } => {
+                    self.state
+                        .out
+                        .emit_instr_reg_rbp("    movq", xmm_regs[lo_fp_idx], slot.0);
                     if let Some(hi) = hi_fp_idx {
-                        self.state.out.emit_instr_reg_rbp("    movq", xmm_regs[hi], slot.0 + 8);
+                        self.state
+                            .out
+                            .emit_instr_reg_rbp("    movq", xmm_regs[hi], slot.0 + 8);
                     }
                 }
-                ParamClass::StructMixedIntSseReg { int_reg_idx, fp_reg_idx, .. } => {
-                    self.state.out.emit_instr_reg_rbp("    movq", X86_ARG_REGS[int_reg_idx], slot.0);
-                    self.state.out.emit_instr_reg_rbp("    movq", xmm_regs[fp_reg_idx], slot.0 + 8);
+                ParamClass::StructMixedIntSseReg {
+                    int_reg_idx,
+                    fp_reg_idx,
+                    ..
+                } => {
+                    self.state.out.emit_instr_reg_rbp(
+                        "    movq",
+                        X86_ARG_REGS[int_reg_idx],
+                        slot.0,
+                    );
+                    self.state
+                        .out
+                        .emit_instr_reg_rbp("    movq", xmm_regs[fp_reg_idx], slot.0 + 8);
                 }
-                ParamClass::StructMixedSseIntReg { fp_reg_idx, int_reg_idx, .. } => {
-                    self.state.out.emit_instr_reg_rbp("    movq", xmm_regs[fp_reg_idx], slot.0);
-                    self.state.out.emit_instr_reg_rbp("    movq", X86_ARG_REGS[int_reg_idx], slot.0 + 8);
+                ParamClass::StructMixedSseIntReg {
+                    fp_reg_idx,
+                    int_reg_idx,
+                    ..
+                } => {
+                    self.state
+                        .out
+                        .emit_instr_reg_rbp("    movq", xmm_regs[fp_reg_idx], slot.0);
+                    self.state.out.emit_instr_reg_rbp(
+                        "    movq",
+                        X86_ARG_REGS[int_reg_idx],
+                        slot.0 + 8,
+                    );
                 }
                 ParamClass::F128AlwaysStack { offset } => {
                     let src = stack_base + offset;
@@ -320,8 +437,12 @@ impl X86Codegen {
                     let src = stack_base + offset;
                     self.state.out.emit_instr_rbp_reg("    movq", src, "rax");
                     self.state.out.emit_instr_reg_rbp("    movq", "rax", slot.0);
-                    self.state.out.emit_instr_rbp_reg("    movq", src + 8, "rax");
-                    self.state.out.emit_instr_reg_rbp("    movq", "rax", slot.0 + 8);
+                    self.state
+                        .out
+                        .emit_instr_rbp_reg("    movq", src + 8, "rax");
+                    self.state
+                        .out
+                        .emit_instr_reg_rbp("    movq", "rax", slot.0 + 8);
                 }
                 ParamClass::StackScalar { offset } => {
                     // Load from caller's stack frame and store full 8 bytes to ensure
@@ -330,20 +451,28 @@ impl X86Codegen {
                     self.state.out.emit_instr_rbp_reg("    movq", src, "rax");
                     self.state.out.emit_instr_reg_rbp("    movq", "rax", slot.0);
                 }
-                ParamClass::StructStack { offset, size } | ParamClass::LargeStructStack { offset, size } => {
+                ParamClass::StructStack { offset, size }
+                | ParamClass::LargeStructStack { offset, size } => {
                     let src = stack_base + offset;
                     let n_qwords = size.div_ceil(8);
                     for qi in 0..n_qwords {
                         let src_off = src + (qi as i64 * 8);
                         let dst_off = slot.0 + (qi as i64 * 8);
-                        self.state.out.emit_instr_rbp_reg("    movq", src_off, "rax");
-                        self.state.out.emit_instr_reg_rbp("    movq", "rax", dst_off);
+                        self.state
+                            .out
+                            .emit_instr_rbp_reg("    movq", src_off, "rax");
+                        self.state
+                            .out
+                            .emit_instr_reg_rbp("    movq", "rax", dst_off);
                     }
                 }
-                ParamClass::F128FpReg { .. } | ParamClass::F128GpPair { .. } | ParamClass::F128Stack { .. } |
-                ParamClass::LargeStructByRefReg { .. } | ParamClass::LargeStructByRefStack { .. } |
-                ParamClass::StructSplitRegStack { .. } |
-                ParamClass::ZeroSizeSkip => {}
+                ParamClass::F128FpReg { .. }
+                | ParamClass::F128GpPair { .. }
+                | ParamClass::F128Stack { .. }
+                | ParamClass::LargeStructByRefReg { .. }
+                | ParamClass::LargeStructByRefStack { .. }
+                | ParamClass::StructSplitRegStack { .. }
+                | ParamClass::ZeroSizeSkip => {}
             }
         }
     }
@@ -364,13 +493,16 @@ impl X86Codegen {
             if let Some((slot, alloca_ty)) = self.state.param_alloca_slots[param_idx] {
                 let load_instr = Self::mov_load_for_type(alloca_ty);
                 let reg = Self::load_dest_reg(alloca_ty);
-                self.state.emit_fmt(format_args!("    {} {}(%rbp), {}", load_instr, slot.0, reg));
+                self.state
+                    .emit_fmt(format_args!("    {} {}(%rbp), {}", load_instr, slot.0, reg));
                 self.store_rax_to(dest);
                 return;
             }
         }
 
-        let xmm_regs = ["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"];
+        let xmm_regs = [
+            "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+        ];
         let class = self.state.param_classes[param_idx];
         let stack_base: i64 = 16;
 
@@ -379,15 +511,22 @@ impl X86Codegen {
                 let src_reg = Self::reg_for_type(X86_ARG_REGS[reg_idx], ty);
                 let load_instr = Self::mov_load_for_type(ty);
                 let dest_reg = Self::load_dest_reg(ty);
-                self.state.emit_fmt(format_args!("    {} %{}, {}", load_instr, src_reg, dest_reg));
+                self.state.emit_fmt(format_args!(
+                    "    {} %{}, {}",
+                    load_instr, src_reg, dest_reg
+                ));
                 self.store_rax_to(dest);
             }
             ParamClass::FloatReg { reg_idx } => {
                 if ty == IrType::F32 {
-                    self.state.out.emit_instr_reg_reg("    movd", xmm_regs[reg_idx], "eax");
+                    self.state
+                        .out
+                        .emit_instr_reg_reg("    movd", xmm_regs[reg_idx], "eax");
                     self.store_rax_to(dest);
                 } else {
-                    self.state.out.emit_instr_reg_reg("    movq", xmm_regs[reg_idx], "rax");
+                    self.state
+                        .out
+                        .emit_instr_reg_reg("    movq", xmm_regs[reg_idx], "rax");
                     self.store_rax_to(dest);
                 }
             }
@@ -395,7 +534,8 @@ impl X86Codegen {
                 let src = stack_base + offset;
                 let load_instr = Self::mov_load_for_type(ty);
                 let reg = Self::load_dest_reg(ty);
-                self.state.emit_fmt(format_args!("    {} {}(%rbp), {}", load_instr, src, reg));
+                self.state
+                    .emit_fmt(format_args!("    {} {}(%rbp), {}", load_instr, src, reg));
                 self.store_rax_to(dest);
             }
             _ => {}

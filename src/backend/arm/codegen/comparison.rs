@@ -1,11 +1,18 @@
 //! ArmCodegen: comparison operations.
 
-use crate::ir::reexports::{IrCmpOp, Operand, Value};
+use super::emit::{arm_int_cond_code, arm_invert_cond_code, ArmCodegen};
 use crate::common::types::IrType;
-use super::emit::{ArmCodegen, arm_int_cond_code, arm_invert_cond_code};
+use crate::ir::reexports::{IrCmpOp, Operand, Value};
 
 impl ArmCodegen {
-    pub(super) fn emit_float_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_float_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         self.operand_to_x0(lhs);
         self.state.emit("    mov x1, x0");
         self.operand_to_x0(rhs);
@@ -30,11 +37,24 @@ impl ArmCodegen {
         self.store_x0_to(dest);
     }
 
-    pub(super) fn emit_f128_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand) {
+    pub(super) fn emit_f128_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) {
         crate::backend::f128_softfloat::f128_cmp(self, dest, op, lhs, rhs);
     }
 
-    pub(super) fn emit_int_cmp_impl(&mut self, dest: &Value, op: IrCmpOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_int_cmp_impl(
+        &mut self,
+        dest: &Value,
+        op: IrCmpOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         self.emit_int_cmp_insn(lhs, rhs, ty);
         let cond = arm_int_cond_code(op);
         self.state.emit_fmt(format_args!("    cset x0, {}", cond));
@@ -54,14 +74,22 @@ impl ArmCodegen {
         let cc = arm_int_cond_code(op);
         let inv_cc = arm_invert_cond_code(cc);
         let skip = self.state.fresh_label("skip");
-        self.state.emit_fmt(format_args!("    b.{} {}", inv_cc, skip));
+        self.state
+            .emit_fmt(format_args!("    b.{} {}", inv_cc, skip));
         self.state.emit_fmt(format_args!("    b {}", true_label));
         self.state.emit_fmt(format_args!("{}:", skip));
         self.state.emit_fmt(format_args!("    b {}", false_label));
         self.state.reg_cache.invalidate_all();
     }
 
-    pub(super) fn emit_select_impl(&mut self, dest: &Value, cond: &Operand, true_val: &Operand, false_val: &Operand, _ty: IrType) {
+    pub(super) fn emit_select_impl(
+        &mut self,
+        dest: &Value,
+        cond: &Operand,
+        true_val: &Operand,
+        false_val: &Operand,
+        _ty: IrType,
+    ) {
         self.operand_to_x0(false_val);
         self.state.emit("    mov x1, x0");
         self.operand_to_x0(true_val);

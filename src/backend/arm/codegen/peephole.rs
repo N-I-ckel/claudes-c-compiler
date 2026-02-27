@@ -112,15 +112,39 @@ fn parse_reg(name: &str) -> u8 {
 /// Return the x-register name for a given ID.
 fn xreg_name(id: u8) -> &'static str {
     match id {
-        0 => "x0", 1 => "x1", 2 => "x2", 3 => "x3",
-        4 => "x4", 5 => "x5", 6 => "x6", 7 => "x7",
-        8 => "x8", 9 => "x9", 10 => "x10", 11 => "x11",
-        12 => "x12", 13 => "x13", 14 => "x14", 15 => "x15",
-        16 => "x16", 17 => "x17", 18 => "x18", 19 => "x19",
-        20 => "x20", 21 => "x21", 22 => "x22", 23 => "x23",
-        24 => "x24", 25 => "x25", 26 => "x26", 27 => "x27",
-        28 => "x28", 29 => "x29", 30 => "x30",
-        31 => "sp", 32 => "xzr",
+        0 => "x0",
+        1 => "x1",
+        2 => "x2",
+        3 => "x3",
+        4 => "x4",
+        5 => "x5",
+        6 => "x6",
+        7 => "x7",
+        8 => "x8",
+        9 => "x9",
+        10 => "x10",
+        11 => "x11",
+        12 => "x12",
+        13 => "x13",
+        14 => "x14",
+        15 => "x15",
+        16 => "x16",
+        17 => "x17",
+        18 => "x18",
+        19 => "x19",
+        20 => "x20",
+        21 => "x21",
+        22 => "x22",
+        23 => "x23",
+        24 => "x24",
+        25 => "x25",
+        26 => "x26",
+        27 => "x27",
+        28 => "x28",
+        29 => "x29",
+        30 => "x30",
+        31 => "sp",
+        32 => "xzr",
         _ => "??",
     }
 }
@@ -128,14 +152,37 @@ fn xreg_name(id: u8) -> &'static str {
 /// Return the w-register name for a given ID.
 fn wreg_name(id: u8) -> &'static str {
     match id {
-        0 => "w0", 1 => "w1", 2 => "w2", 3 => "w3",
-        4 => "w4", 5 => "w5", 6 => "w6", 7 => "w7",
-        8 => "w8", 9 => "w9", 10 => "w10", 11 => "w11",
-        12 => "w12", 13 => "w13", 14 => "w14", 15 => "w15",
-        16 => "w16", 17 => "w17", 18 => "w18", 19 => "w19",
-        20 => "w20", 21 => "w21", 22 => "w22", 23 => "w23",
-        24 => "w24", 25 => "w25", 26 => "w26", 27 => "w27",
-        28 => "w28", 29 => "w29", 30 => "w30",
+        0 => "w0",
+        1 => "w1",
+        2 => "w2",
+        3 => "w3",
+        4 => "w4",
+        5 => "w5",
+        6 => "w6",
+        7 => "w7",
+        8 => "w8",
+        9 => "w9",
+        10 => "w10",
+        11 => "w11",
+        12 => "w12",
+        13 => "w13",
+        14 => "w14",
+        15 => "w15",
+        16 => "w16",
+        17 => "w17",
+        18 => "w18",
+        19 => "w19",
+        20 => "w20",
+        21 => "w21",
+        22 => "w22",
+        23 => "w23",
+        24 => "w24",
+        25 => "w25",
+        26 => "w26",
+        27 => "w27",
+        28 => "w28",
+        29 => "w29",
+        30 => "w30",
         32 => "wzr",
         _ => "??",
     }
@@ -163,7 +210,11 @@ fn classify_line(line: &str) -> LineKind {
     // str xN/wN, [sp, #off]
     if let Some(rest) = trimmed.strip_prefix("str ") {
         if let Some(info) = parse_sp_mem_op(rest) {
-            return LineKind::StoreSp { reg: info.0, offset: info.1, is_word: info.2 };
+            return LineKind::StoreSp {
+                reg: info.0,
+                offset: info.1,
+                is_word: info.2,
+            };
         }
         return LineKind::MemOther;
     }
@@ -176,7 +227,11 @@ fn classify_line(line: &str) -> LineKind {
     // ldr xN/wN, [sp, #off]
     if let Some(rest) = trimmed.strip_prefix("ldr ") {
         if let Some(info) = parse_sp_mem_op(rest) {
-            return LineKind::LoadSp { reg: info.0, offset: info.1, is_word: info.2 };
+            return LineKind::LoadSp {
+                reg: info.0,
+                offset: info.1,
+                is_word: info.2,
+            };
         }
         return LineKind::MemOther;
     }
@@ -195,8 +250,11 @@ fn classify_line(line: &str) -> LineKind {
     }
 
     // ldrsb
-    if trimmed.starts_with("ldrsb ") || trimmed.starts_with("ldrsh ") ||
-       trimmed.starts_with("ldrb ") || trimmed.starts_with("ldrh ") {
+    if trimmed.starts_with("ldrsb ")
+        || trimmed.starts_with("ldrsh ")
+        || trimmed.starts_with("ldrb ")
+        || trimmed.starts_with("ldrh ")
+    {
         return LineKind::LoadsbReg;
     }
 
@@ -219,7 +277,10 @@ fn classify_line(line: &str) -> LineKind {
     // mov xN, xM  or  mov xN, #imm  or  mov xN, :lo12:sym etc.
     if let Some(rest) = trimmed.strip_prefix("mov ") {
         // Avoid matching movz, movn, movk
-        if !trimmed.starts_with("movz") && !trimmed.starts_with("movn") && !trimmed.starts_with("movk") {
+        if !trimmed.starts_with("movz")
+            && !trimmed.starts_with("movn")
+            && !trimmed.starts_with("movk")
+        {
             if let Some((dst_str, src_str)) = rest.split_once(", ") {
                 let dst_trimmed = dst_str.trim();
                 let dst = parse_reg(dst_trimmed);
@@ -280,8 +341,11 @@ fn classify_line(line: &str) -> LineKind {
     }
 
     // cbz/cbnz/tbz/tbnz
-    if trimmed.starts_with("cbz ") || trimmed.starts_with("cbnz ") ||
-       trimmed.starts_with("tbz ") || trimmed.starts_with("tbnz ") {
+    if trimmed.starts_with("cbz ")
+        || trimmed.starts_with("cbnz ")
+        || trimmed.starts_with("tbz ")
+        || trimmed.starts_with("tbnz ")
+    {
         return LineKind::CmpBranch;
     }
 
@@ -306,15 +370,24 @@ fn classify_line(line: &str) -> LineKind {
     }
 
     // ALU: add, sub, and, orr, eor, lsl, lsr, asr, mul, etc.
-    if trimmed.starts_with("add ") || trimmed.starts_with("sub ") ||
-       trimmed.starts_with("and ") || trimmed.starts_with("orr ") ||
-       trimmed.starts_with("eor ") || trimmed.starts_with("mul ") ||
-       trimmed.starts_with("neg ") || trimmed.starts_with("mvn ") ||
-       trimmed.starts_with("lsl ") || trimmed.starts_with("lsr ") ||
-       trimmed.starts_with("asr ") || trimmed.starts_with("madd ") ||
-       trimmed.starts_with("msub ") || trimmed.starts_with("sdiv ") ||
-       trimmed.starts_with("udiv ") || trimmed.starts_with("adds ") ||
-       trimmed.starts_with("subs ") {
+    if trimmed.starts_with("add ")
+        || trimmed.starts_with("sub ")
+        || trimmed.starts_with("and ")
+        || trimmed.starts_with("orr ")
+        || trimmed.starts_with("eor ")
+        || trimmed.starts_with("mul ")
+        || trimmed.starts_with("neg ")
+        || trimmed.starts_with("mvn ")
+        || trimmed.starts_with("lsl ")
+        || trimmed.starts_with("lsr ")
+        || trimmed.starts_with("asr ")
+        || trimmed.starts_with("madd ")
+        || trimmed.starts_with("msub ")
+        || trimmed.starts_with("sdiv ")
+        || trimmed.starts_with("udiv ")
+        || trimmed.starts_with("adds ")
+        || trimmed.starts_with("subs ")
+    {
         return LineKind::Alu;
     }
 
@@ -402,7 +475,6 @@ fn label_name(line: &str) -> Option<&str> {
     trimmed.strip_suffix(':')
 }
 
-
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 /// Run peephole optimization on AArch64 assembly text.
@@ -476,7 +548,12 @@ fn eliminate_adjacent_store_load(lines: &mut [String], kinds: &mut [LineKind], n
     let mut changed = false;
     let mut i = 0;
     while i + 1 < n {
-        if let LineKind::StoreSp { reg: store_reg, offset: store_off, is_word: store_word } = kinds[i] {
+        if let LineKind::StoreSp {
+            reg: store_reg,
+            offset: store_off,
+            is_word: store_word,
+        } = kinds[i]
+        {
             // Look ahead for the matching load (skip Nops)
             let mut j = i + 1;
             while j < n && kinds[j] == LineKind::Nop {
@@ -484,9 +561,11 @@ fn eliminate_adjacent_store_load(lines: &mut [String], kinds: &mut [LineKind], n
             }
             if j < n {
                 match kinds[j] {
-                    LineKind::LoadSp { reg: load_reg, offset: load_off, is_word: load_word }
-                        if store_off == load_off && store_word == load_word =>
-                    {
+                    LineKind::LoadSp {
+                        reg: load_reg,
+                        offset: load_off,
+                        is_word: load_word,
+                    } if store_off == load_off && store_word == load_word => {
                         if store_reg == load_reg {
                             // Same register: eliminate the load entirely
                             kinds[j] = LineKind::Nop;
@@ -494,19 +573,29 @@ fn eliminate_adjacent_store_load(lines: &mut [String], kinds: &mut [LineKind], n
                         } else {
                             // Different register: replace load with mov
                             let reg_fmt = if store_word { wreg_name } else { xreg_name };
-                            lines[j] = format!("    mov {}, {}", reg_fmt(load_reg), reg_fmt(store_reg));
-                            kinds[j] = LineKind::Move { dst: load_reg, src: store_reg, is_32bit: store_word };
+                            lines[j] =
+                                format!("    mov {}, {}", reg_fmt(load_reg), reg_fmt(store_reg));
+                            kinds[j] = LineKind::Move {
+                                dst: load_reg,
+                                src: store_reg,
+                                is_32bit: store_word,
+                            };
                             changed = true;
                         }
                     }
                     // str wN, [sp, #off] followed by ldrsw xM, [sp, #off]
                     // The value was just stored as a word; sign-extending load can be replaced
                     // with sxtw xM, wN (or eliminated if same reg).
-                    LineKind::LoadswSp { reg: load_reg, offset: load_off }
-                        if store_off == load_off && store_word =>
-                    {
-                        lines[j] = format!("    sxtw {}, {}", xreg_name(load_reg), wreg_name(store_reg));
-                        kinds[j] = LineKind::Sxtw { dst: load_reg, src: store_reg };
+                    LineKind::LoadswSp {
+                        reg: load_reg,
+                        offset: load_off,
+                    } if store_off == load_off && store_word => {
+                        lines[j] =
+                            format!("    sxtw {}, {}", xreg_name(load_reg), wreg_name(store_reg));
+                        kinds[j] = LineKind::Sxtw {
+                            dst: load_reg,
+                            src: store_reg,
+                        };
                         changed = true;
                     }
                     _ => {}
@@ -577,20 +666,33 @@ fn eliminate_move_chains(lines: &mut [String], kinds: &mut [LineKind], n: usize)
     let mut i = 0;
     while i + 1 < n {
         match kinds[i] {
-            LineKind::Move { dst: dst1, src: src1, is_32bit: is_32bit1 } => {
+            LineKind::Move {
+                dst: dst1,
+                src: src1,
+                is_32bit: is_32bit1,
+            } => {
                 // Find next non-Nop instruction
                 let mut j = i + 1;
                 while j < n && kinds[j] == LineKind::Nop {
                     j += 1;
                 }
                 if j < n {
-                    if let LineKind::Move { dst: dst2, src: src2, is_32bit: is_32bit2 } = kinds[j] {
+                    if let LineKind::Move {
+                        dst: dst2,
+                        src: src2,
+                        is_32bit: is_32bit2,
+                    } = kinds[j]
+                    {
                         // mov dst1, src1 ; mov dst2, dst1 → mov dst2, src1
                         // Only safe when both moves use the same width.
                         if src2 == dst1 && dst2 != src1 && is_32bit1 == is_32bit2 {
                             let reg_fmt = if is_32bit2 { wreg_name } else { xreg_name };
                             lines[j] = format!("    mov {}, {}", reg_fmt(dst2), reg_fmt(src1));
-                            kinds[j] = LineKind::Move { dst: dst2, src: src1, is_32bit: is_32bit2 };
+                            kinds[j] = LineKind::Move {
+                                dst: dst2,
+                                src: src1,
+                                is_32bit: is_32bit2,
+                            };
                             changed = true;
                         }
                     }
@@ -605,7 +707,12 @@ fn eliminate_move_chains(lines: &mut [String], kinds: &mut [LineKind], n: usize)
                         j += 1;
                     }
                     if j < n {
-                        if let LineKind::Move { dst: dst2, src: src2, is_32bit: _ } = kinds[j] {
+                        if let LineKind::Move {
+                            dst: dst2,
+                            src: src2,
+                            is_32bit: _,
+                        } = kinds[j]
+                        {
                             if src2 == dst1 {
                                 // Copy the immediate instruction, retargeted to dst2
                                 let old_line = lines[i].trim();
@@ -668,14 +775,21 @@ fn retarget_move_imm(line: &str, new_dst: u8) -> Option<String> {
 
 /// Estimate the distance (in instructions) from position `from` to the label
 /// `target` in the assembly. Returns `None` if the label is not found.
-fn estimate_branch_distance(lines: &[String], kinds: &[LineKind], from: usize, target: &str) -> Option<usize> {
+fn estimate_branch_distance(
+    lines: &[String],
+    kinds: &[LineKind],
+    from: usize,
+    target: &str,
+) -> Option<usize> {
     // Search both forward and backward for the target label
     let target_with_colon = format!("{}:", target);
     for idx in 0..lines.len() {
         if kinds[idx] == LineKind::Label && lines[idx].trim() == target_with_colon {
             // Count non-Nop lines between from and idx (each is one 4-byte instruction)
             let (lo, hi) = if from < idx { (from, idx) } else { (idx, from) };
-            let count = (lo..hi).filter(|&p| kinds[p] != LineKind::Nop && kinds[p] != LineKind::Label).count();
+            let count = (lo..hi)
+                .filter(|&p| kinds[p] != LineKind::Nop && kinds[p] != LineKind::Label)
+                .count();
             return Some(count);
         }
     }
@@ -756,7 +870,11 @@ fn propagate_register_copies(lines: &mut [String], kinds: &mut [LineKind], n: us
     for i in 0..n {
         // Only process 64-bit register-to-register moves
         let (dst, src) = match kinds[i] {
-            LineKind::Move { dst, src, is_32bit: false } => {
+            LineKind::Move {
+                dst,
+                src,
+                is_32bit: false,
+            } => {
                 // Don't propagate sp/fp moves
                 if dst >= 29 || src >= 29 {
                     continue;
@@ -780,8 +898,12 @@ fn propagate_register_copies(lines: &mut [String], kinds: &mut [LineKind], n: us
         // after the mnemonic, but our replace_source_reg_in_instruction only
         // treats the first operand as dest).
         match kinds[j] {
-            LineKind::Label | LineKind::Branch | LineKind::Ret | LineKind::Directive
-            | LineKind::LoadPairSp | LineKind::Call => continue,
+            LineKind::Label
+            | LineKind::Branch
+            | LineKind::Ret
+            | LineKind::Directive
+            | LineKind::LoadPairSp
+            | LineKind::Call => continue,
             _ => {}
         }
         // Also skip ldp/ldaxr/ldxr/stxr by checking instruction text,
@@ -811,18 +933,28 @@ fn propagate_register_copies(lines: &mut [String], kinds: &mut [LineKind], n: us
 
         // For move instructions, replace the source operand
         match kinds[j] {
-            LineKind::Move { dst: dst2, src: src2, is_32bit: false } if src2 == dst => {
+            LineKind::Move {
+                dst: dst2,
+                src: src2,
+                is_32bit: false,
+            } if src2 == dst => {
                 // mov X, dst -> mov X, src
                 if dst2 != src {
                     lines[j] = format!("    mov {}, {}", xreg_name(dst2), src_name);
-                    kinds[j] = LineKind::Move { dst: dst2, src, is_32bit: false };
+                    kinds[j] = LineKind::Move {
+                        dst: dst2,
+                        src,
+                        is_32bit: false,
+                    };
                     changed = true;
                 }
             }
             _ => {
                 // General case: try to replace the register in the instruction text.
                 // Only replace in source operand positions (not destination).
-                if let Some(new_line) = replace_source_reg_in_instruction(old_line, dst_name, src_name) {
+                if let Some(new_line) =
+                    replace_source_reg_in_instruction(old_line, dst_name, src_name)
+                {
                     lines[j] = new_line;
                     kinds[j] = classify_line(&lines[j]);
                     changed = true;
@@ -859,7 +991,8 @@ fn global_dead_store_elimination(lines: &[String], kinds: &mut [LineKind], n: us
         // - `add xN, sp, #offset` (common for array/struct address)
         // - `mov xN, sp` (copying stack pointer)
         // - `sub xN, sp, #N` (stack address computation)
-        if (trimmed.starts_with("add ") || trimmed.starts_with("sub ")) && trimmed.contains(", sp,") {
+        if (trimmed.starts_with("add ") || trimmed.starts_with("sub ")) && trimmed.contains(", sp,")
+        {
             return false;
         }
         if trimmed.starts_with("mov ") && trimmed.contains(", sp") {
@@ -881,7 +1014,9 @@ fn global_dead_store_elimination(lines: &[String], kinds: &mut [LineKind], n: us
     let mut loaded_ranges: Vec<(i32, i32)> = Vec::new(); // (offset, size)
     for i in 0..n {
         match kinds[i] {
-            LineKind::LoadSp { offset, is_word, .. } => {
+            LineKind::LoadSp {
+                offset, is_word, ..
+            } => {
                 let size = if is_word { 4 } else { 8 };
                 loaded_ranges.push((offset, size));
             }
@@ -895,8 +1030,10 @@ fn global_dead_store_elimination(lines: &[String], kinds: &mut [LineKind], n: us
                     Some(16) // ldp loads two 8-byte registers
                 } else if trimmed.starts_with("ldr x") || trimmed.starts_with("ldur x") {
                     Some(8)
-                } else if trimmed.starts_with("ldr w") || trimmed.starts_with("ldur w") ||
-                          trimmed.starts_with("ldrsw ") {
+                } else if trimmed.starts_with("ldr w")
+                    || trimmed.starts_with("ldur w")
+                    || trimmed.starts_with("ldrsw ")
+                {
                     Some(4)
                 } else if trimmed.starts_with("ldrh ") || trimmed.starts_with("ldrsh ") {
                     Some(2)
@@ -921,7 +1058,10 @@ fn global_dead_store_elimination(lines: &[String], kinds: &mut [LineKind], n: us
     // Phase 2: Remove stores whose byte range does not overlap any load range
     let mut changed = false;
     for i in 0..n {
-        if let LineKind::StoreSp { offset, is_word, .. } = kinds[i] {
+        if let LineKind::StoreSp {
+            offset, is_word, ..
+        } = kinds[i]
+        {
             let store_size = if is_word { 4 } else { 8 };
             let overlaps_any_load = loaded_ranges.iter().any(|&(load_off, load_sz)| {
                 // Two ranges [a, a+as) and [b, b+bs) overlap iff a < b+bs && b < a+as
@@ -962,11 +1102,19 @@ mod tests {
     fn test_classify_store() {
         assert!(matches!(
             classify_line("    str x0, [sp, #16]"),
-            LineKind::StoreSp { reg: 0, offset: 16, is_word: false }
+            LineKind::StoreSp {
+                reg: 0,
+                offset: 16,
+                is_word: false
+            }
         ));
         assert!(matches!(
             classify_line("    str w1, [sp, #24]"),
-            LineKind::StoreSp { reg: 1, offset: 24, is_word: true }
+            LineKind::StoreSp {
+                reg: 1,
+                offset: 24,
+                is_word: true
+            }
         ));
     }
 
@@ -974,7 +1122,11 @@ mod tests {
     fn test_classify_load() {
         assert!(matches!(
             classify_line("    ldr x0, [sp, #16]"),
-            LineKind::LoadSp { reg: 0, offset: 16, is_word: false }
+            LineKind::LoadSp {
+                reg: 0,
+                offset: 16,
+                is_word: false
+            }
         ));
     }
 
@@ -990,7 +1142,11 @@ mod tests {
     fn test_classify_move() {
         assert!(matches!(
             classify_line("    mov x14, x0"),
-            LineKind::Move { dst: 14, src: 0, is_32bit: false }
+            LineKind::Move {
+                dst: 14,
+                src: 0,
+                is_32bit: false
+            }
         ));
     }
 
@@ -1192,19 +1348,13 @@ mod tests {
     #[test]
     fn test_copy_prop_word_boundary() {
         // Ensure "x1" doesn't match inside "x11"
-        assert_eq!(
-            replace_whole_word("x11, x1", "x1", "x5"),
-            "x11, x5"
-        );
+        assert_eq!(replace_whole_word("x11, x1", "x1", "x5"), "x11, x5");
     }
 
     #[test]
     fn test_copy_prop_no_false_match() {
         // x10 should not be affected when replacing x1
-        assert_eq!(
-            replace_whole_word("x10", "x1", "x5"),
-            "x10"
-        );
+        assert_eq!(replace_whole_word("x10", "x1", "x5"), "x10");
     }
 
     // ── Dead store elimination tests ─────────────────────────────────

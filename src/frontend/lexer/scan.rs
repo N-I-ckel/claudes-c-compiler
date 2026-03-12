@@ -1,6 +1,6 @@
+use super::token::{Token, TokenKind};
 use crate::common::encoding::decode_pua_byte;
 use crate::common::source::Span;
-use super::token::{Token, TokenKind};
 
 /// C lexer that tokenizes source input with source locations.
 pub struct Lexer {
@@ -42,14 +42,19 @@ impl Lexer {
         self.skip_whitespace_and_comments();
 
         if self.pos >= self.input.len() {
-            return Token::new(TokenKind::Eof, Span::new(self.pos as u32, self.pos as u32, self.file_id));
+            return Token::new(
+                TokenKind::Eof,
+                Span::new(self.pos as u32, self.pos as u32, self.file_id),
+            );
         }
 
         let start = self.pos;
         let ch = self.input[self.pos];
 
         // Number literals
-        if ch.is_ascii_digit() || (ch == b'.' && self.peek_next().is_some_and(|c| c.is_ascii_digit())) {
+        if ch.is_ascii_digit()
+            || (ch == b'.' && self.peek_next().is_some_and(|c| c.is_ascii_digit()))
+        {
             return self.lex_number(start);
         }
 
@@ -97,7 +102,10 @@ impl Lexer {
             }
 
             // Skip line comments
-            if self.pos + 1 < self.input.len() && self.input[self.pos] == b'/' && self.input[self.pos + 1] == b'/' {
+            if self.pos + 1 < self.input.len()
+                && self.input[self.pos] == b'/'
+                && self.input[self.pos + 1] == b'/'
+            {
                 while self.pos < self.input.len() && self.input[self.pos] != b'\n' {
                     self.pos += 1;
                 }
@@ -105,7 +113,10 @@ impl Lexer {
             }
 
             // Skip block comments
-            if self.pos + 1 < self.input.len() && self.input[self.pos] == b'/' && self.input[self.pos + 1] == b'*' {
+            if self.pos + 1 < self.input.len()
+                && self.input[self.pos] == b'/'
+                && self.input[self.pos + 1] == b'*'
+            {
                 self.pos += 2;
                 while self.pos + 1 < self.input.len() {
                     if self.input[self.pos] == b'*' && self.input[self.pos + 1] == b'/' {
@@ -150,13 +161,15 @@ impl Lexer {
     }
 
     fn lex_number(&mut self, start: usize) -> Token {
-        if self.pos + 1 < self.input.len() && self.input[self.pos] == b'0'
+        if self.pos + 1 < self.input.len()
+            && self.input[self.pos] == b'0'
             && (self.input[self.pos + 1] == b'x' || self.input[self.pos + 1] == b'X')
         {
             return self.lex_hex_number(start);
         }
 
-        if self.pos + 1 < self.input.len() && self.input[self.pos] == b'0'
+        if self.pos + 1 < self.input.len()
+            && self.input[self.pos] == b'0'
             && (self.input[self.pos + 1] == b'b' || self.input[self.pos + 1] == b'B')
         {
             return self.lex_binary_number(start);
@@ -188,7 +201,8 @@ impl Lexer {
         } else {
             false
         };
-        let has_p = self.pos < self.input.len() && (self.input[self.pos] == b'p' || self.input[self.pos] == b'P');
+        let has_p = self.pos < self.input.len()
+            && (self.input[self.pos] == b'p' || self.input[self.pos] == b'P');
 
         if has_dot && after_dot_has_p || has_p {
             return self.lex_hex_float(start, hex_start, has_dot);
@@ -216,7 +230,9 @@ impl Lexer {
         };
 
         // Parse 'p'/'P' exponent (mandatory for hex floats)
-        let exp: i64 = if self.pos < self.input.len() && (self.input[self.pos] == b'p' || self.input[self.pos] == b'P') {
+        let exp: i64 = if self.pos < self.input.len()
+            && (self.input[self.pos] == b'p' || self.input[self.pos] == b'P')
+        {
             self.pos += 1;
             let exp_neg = if self.pos < self.input.len() && self.input[self.pos] == b'-' {
                 self.pos += 1;
@@ -233,7 +249,11 @@ impl Lexer {
             }
             let exp_str = std::str::from_utf8(&self.input[exp_start..self.pos]).unwrap_or("0");
             let e: i64 = exp_str.parse().unwrap_or(0);
-            if exp_neg { -e } else { e }
+            if exp_neg {
+                -e
+            } else {
+                e
+            }
         } else {
             0
         };
@@ -255,7 +275,8 @@ impl Lexer {
             1 => Token::new(TokenKind::FloatLiteralF32(value), span),
             2 => {
                 let hex_text = std::str::from_utf8(&self.input[start..self.pos]).unwrap_or("0x0p0");
-                let f128_bytes = crate::common::long_double::parse_long_double_to_f128_bytes(hex_text);
+                let f128_bytes =
+                    crate::common::long_double::parse_long_double_to_f128_bytes(hex_text);
                 Token::new(TokenKind::FloatLiteralLongDouble(value, f128_bytes), span)
             }
             _ => Token::new(TokenKind::FloatLiteral(value), span),
@@ -264,10 +285,14 @@ impl Lexer {
 
     /// Parse a simple float suffix (f/F → 1, l/L → 2, else 0). No imaginary handling.
     fn parse_simple_float_suffix(&mut self) -> u8 {
-        if self.pos < self.input.len() && (self.input[self.pos] == b'f' || self.input[self.pos] == b'F') {
+        if self.pos < self.input.len()
+            && (self.input[self.pos] == b'f' || self.input[self.pos] == b'F')
+        {
             self.pos += 1;
             1
-        } else if self.pos < self.input.len() && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L') {
+        } else if self.pos < self.input.len()
+            && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L')
+        {
             self.pos += 1;
             2
         } else {
@@ -279,7 +304,9 @@ impl Lexer {
     fn lex_binary_number(&mut self, start: usize) -> Token {
         self.pos += 2;
         let bin_start = self.pos;
-        while self.pos < self.input.len() && (self.input[self.pos] == b'0' || self.input[self.pos] == b'1') {
+        while self.pos < self.input.len()
+            && (self.input[self.pos] == b'0' || self.input[self.pos] == b'1')
+        {
             self.pos += 1;
         }
         let bin_str = std::str::from_utf8(&self.input[bin_start..self.pos]).unwrap_or("0");
@@ -295,12 +322,17 @@ impl Lexer {
         let saved_pos = self.pos;
         self.pos += 1;
         let oct_start = self.pos;
-        while self.pos < self.input.len() && self.input[self.pos] >= b'0' && self.input[self.pos] <= b'7' {
+        while self.pos < self.input.len()
+            && self.input[self.pos] >= b'0'
+            && self.input[self.pos] <= b'7'
+        {
             self.pos += 1;
         }
         // Float indicator or non-octal digit → backtrack to decimal.
         // But '.' followed by '..' is ellipsis, not a decimal point — keep the octal.
-        if self.pos < self.input.len() && matches!(self.input[self.pos], b'.' | b'e' | b'E' | b'8' | b'9') {
+        if self.pos < self.input.len()
+            && matches!(self.input[self.pos], b'.' | b'e' | b'E' | b'8' | b'9')
+        {
             let is_ellipsis = self.input[self.pos] == b'.'
                 && self.pos + 2 < self.input.len()
                 && self.input[self.pos + 1] == b'.'
@@ -322,7 +354,14 @@ impl Lexer {
             let span = Span::new(start as u32, self.pos as u32, self.file_id);
             return Token::new(TokenKind::ImaginaryLiteral(value as f64), span);
         }
-        self.make_int_token(value, is_unsigned, is_long, is_long_long, is_hex_or_octal, start)
+        self.make_int_token(
+            value,
+            is_unsigned,
+            is_long,
+            is_long_long,
+            is_hex_or_octal,
+            start,
+        )
     }
 
     /// Lex a decimal integer or float literal.
@@ -335,8 +374,11 @@ impl Lexer {
         // Check for decimal point, but NOT if it's the start of '...' (ellipsis).
         // E.g. `2...15` from GCC case range `case 2 ... 15:` must lex as `2` `...` `15`,
         // not as float `2.` followed by invalid `..15`.
-        if self.pos < self.input.len() && self.input[self.pos] == b'.'
-            && !(self.pos + 2 < self.input.len() && self.input[self.pos + 1] == b'.' && self.input[self.pos + 2] == b'.')
+        if self.pos < self.input.len()
+            && self.input[self.pos] == b'.'
+            && !(self.pos + 2 < self.input.len()
+                && self.input[self.pos + 1] == b'.'
+                && self.input[self.pos + 2] == b'.')
         {
             is_float = true;
             self.pos += 1;
@@ -345,10 +387,14 @@ impl Lexer {
             }
         }
 
-        if self.pos < self.input.len() && (self.input[self.pos] == b'e' || self.input[self.pos] == b'E') {
+        if self.pos < self.input.len()
+            && (self.input[self.pos] == b'e' || self.input[self.pos] == b'E')
+        {
             is_float = true;
             self.pos += 1;
-            if self.pos < self.input.len() && (self.input[self.pos] == b'+' || self.input[self.pos] == b'-') {
+            if self.pos < self.input.len()
+                && (self.input[self.pos] == b'+' || self.input[self.pos] == b'-')
+            {
                 self.pos += 1;
             }
             while self.pos < self.input.len() && self.input[self.pos].is_ascii_digit() {
@@ -377,27 +423,41 @@ impl Lexer {
     /// Returns (float_kind, is_imaginary) where float_kind: 0=double, 1=float, 2=long double.
     fn parse_float_suffix(&mut self) -> (u8, bool) {
         let mut is_imaginary = false;
-        let float_kind = if self.pos < self.input.len() && (self.input[self.pos] == b'f' || self.input[self.pos] == b'F') {
+        let float_kind = if self.pos < self.input.len()
+            && (self.input[self.pos] == b'f' || self.input[self.pos] == b'F')
+        {
             self.pos += 1;
-            if self.pos < self.input.len() && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I') {
+            if self.pos < self.input.len()
+                && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I')
+            {
                 self.pos += 1;
                 is_imaginary = true;
             }
             1
-        } else if self.pos < self.input.len() && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L') {
+        } else if self.pos < self.input.len()
+            && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L')
+        {
             self.pos += 1;
-            if self.pos < self.input.len() && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I') {
+            if self.pos < self.input.len()
+                && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I')
+            {
                 self.pos += 1;
                 is_imaginary = true;
             }
             2
-        } else if self.pos < self.input.len() && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I') {
+        } else if self.pos < self.input.len()
+            && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I')
+        {
             self.pos += 1;
             is_imaginary = true;
-            if self.pos < self.input.len() && (self.input[self.pos] == b'f' || self.input[self.pos] == b'F') {
+            if self.pos < self.input.len()
+                && (self.input[self.pos] == b'f' || self.input[self.pos] == b'F')
+            {
                 self.pos += 1;
                 1
-            } else if self.pos < self.input.len() && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L') {
+            } else if self.pos < self.input.len()
+                && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L')
+            {
                 self.pos += 1;
                 2
             } else {
@@ -407,7 +467,10 @@ impl Lexer {
             0
         };
         // Also consume trailing 'j'/'J' suffix (C99/GCC alternative for imaginary)
-        if !is_imaginary && self.pos < self.input.len() && (self.input[self.pos] == b'j' || self.input[self.pos] == b'J') {
+        if !is_imaginary
+            && self.pos < self.input.len()
+            && (self.input[self.pos] == b'j' || self.input[self.pos] == b'J')
+        {
             self.pos += 1;
             is_imaginary = true;
         }
@@ -415,15 +478,25 @@ impl Lexer {
     }
 
     /// Construct a float/imaginary token from parsed components.
-    fn make_float_token(&self, text: &str, float_kind: u8, is_imaginary: bool, start: usize) -> Token {
+    fn make_float_token(
+        &self,
+        text: &str,
+        float_kind: u8,
+        is_imaginary: bool,
+        start: usize,
+    ) -> Token {
         let value: f64 = text.parse().unwrap_or(0.0);
         let span = Span::new(start as u32, self.pos as u32, self.file_id);
         if is_imaginary {
             match float_kind {
                 1 => Token::new(TokenKind::ImaginaryLiteralF32(value), span),
                 2 => {
-                    let f128_bytes = crate::common::long_double::parse_long_double_to_f128_bytes(text);
-                    Token::new(TokenKind::ImaginaryLiteralLongDouble(value, f128_bytes), span)
+                    let f128_bytes =
+                        crate::common::long_double::parse_long_double_to_f128_bytes(text);
+                    Token::new(
+                        TokenKind::ImaginaryLiteralLongDouble(value, f128_bytes),
+                        span,
+                    )
                 }
                 _ => Token::new(TokenKind::ImaginaryLiteral(value), span),
             }
@@ -431,7 +504,8 @@ impl Lexer {
             match float_kind {
                 1 => Token::new(TokenKind::FloatLiteralF32(value), span),
                 2 => {
-                    let f128_bytes = crate::common::long_double::parse_long_double_to_f128_bytes(text);
+                    let f128_bytes =
+                        crate::common::long_double::parse_long_double_to_f128_bytes(text);
                     Token::new(TokenKind::FloatLiteralLongDouble(value, f128_bytes), span)
                 }
                 _ => Token::new(TokenKind::FloatLiteral(value), span),
@@ -448,9 +522,15 @@ impl Lexer {
         let mut is_imaginary = false;
         // First check for standalone 'i'/'I' imaginary suffix (GCC extension: 5i, 5I)
         // Must check this before the main loop since 'i'/'I' alone means imaginary, not a regular suffix
-        if self.pos < self.input.len() && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I') {
+        if self.pos < self.input.len()
+            && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I')
+        {
             // Check it's not the start of an identifier (like 'int')
-            let next = if self.pos + 1 < self.input.len() { self.input[self.pos + 1] } else { 0 };
+            let next = if self.pos + 1 < self.input.len() {
+                self.input[self.pos + 1]
+            } else {
+                0
+            };
             if !next.is_ascii_alphanumeric() && next != b'_' {
                 self.pos += 1; // consume 'i'/'I' as imaginary suffix
                 return (false, false, false, true);
@@ -461,13 +541,19 @@ impl Lexer {
         let mut is_long = false;
         let mut is_long_long = false;
         loop {
-            if self.pos < self.input.len() && (self.input[self.pos] == b'u' || self.input[self.pos] == b'U') {
+            if self.pos < self.input.len()
+                && (self.input[self.pos] == b'u' || self.input[self.pos] == b'U')
+            {
                 is_unsigned = true;
                 self.pos += 1;
-            } else if self.pos < self.input.len() && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L') {
+            } else if self.pos < self.input.len()
+                && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L')
+            {
                 self.pos += 1;
                 // Check for second l/L for ll/LL
-                if self.pos < self.input.len() && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L') {
+                if self.pos < self.input.len()
+                    && (self.input[self.pos] == b'l' || self.input[self.pos] == b'L')
+                {
                     is_long_long = true;
                     self.pos += 1;
                 } else {
@@ -478,8 +564,17 @@ impl Lexer {
             }
         }
         // Consume trailing 'i'/'I'/'j'/'J' for GCC imaginary suffix (e.g., 5li, 5ui, 5ULi, 5I)
-        if self.pos < self.input.len() && (self.input[self.pos] == b'i' || self.input[self.pos] == b'I' || self.input[self.pos] == b'j' || self.input[self.pos] == b'J') {
-            let next = if self.pos + 1 < self.input.len() { self.input[self.pos + 1] } else { 0 };
+        if self.pos < self.input.len()
+            && (self.input[self.pos] == b'i'
+                || self.input[self.pos] == b'I'
+                || self.input[self.pos] == b'j'
+                || self.input[self.pos] == b'J')
+        {
+            let next = if self.pos + 1 < self.input.len() {
+                self.input[self.pos + 1]
+            } else {
+                0
+            };
             if !next.is_ascii_alphanumeric() && next != b'_' {
                 self.pos += 1;
                 is_imaginary = true;
@@ -491,7 +586,15 @@ impl Lexer {
     /// Create the appropriate token kind based on integer value, suffix, and base info.
     /// For hex/octal literals, C promotes: int -> unsigned int -> long -> unsigned long -> long long -> unsigned long long.
     /// For decimal literals: int -> long -> long long (no implicit unsigned).
-    fn make_int_token(&self, value: u64, is_unsigned: bool, is_long: bool, is_long_long: bool, is_hex_or_octal: bool, start: usize) -> Token {
+    fn make_int_token(
+        &self,
+        value: u64,
+        is_unsigned: bool,
+        is_long: bool,
+        is_long_long: bool,
+        is_hex_or_octal: bool,
+        start: usize,
+    ) -> Token {
         let span = Span::new(start as u32, self.pos as u32, self.file_id);
         if is_unsigned && is_long_long {
             // Explicit ULL suffix: always unsigned long long (64-bit)
@@ -600,7 +703,10 @@ impl Lexer {
         if self.pos < self.input.len() {
             self.pos += 1; // skip closing "
         }
-        Token::new(TokenKind::StringLiteral(s), Span::new(start as u32, self.pos as u32, self.file_id))
+        Token::new(
+            TokenKind::StringLiteral(s),
+            Span::new(start as u32, self.pos as u32, self.file_id),
+        )
     }
 
     fn lex_wide_string(&mut self, start: usize) -> Token {
@@ -657,7 +763,10 @@ impl Lexer {
         if self.pos < self.input.len() {
             self.pos += 1; // skip closing "
         }
-        Token::new(TokenKind::WideStringLiteral(s), Span::new(start as u32, self.pos as u32, self.file_id))
+        Token::new(
+            TokenKind::WideStringLiteral(s),
+            Span::new(start as u32, self.pos as u32, self.file_id),
+        )
     }
 
     /// Lex a u"..." char16_t string literal. Same parsing as wide string but produces
@@ -713,7 +822,10 @@ impl Lexer {
         if self.pos < self.input.len() {
             self.pos += 1; // skip closing "
         }
-        Token::new(TokenKind::Char16StringLiteral(s), Span::new(start as u32, self.pos as u32, self.file_id))
+        Token::new(
+            TokenKind::Char16StringLiteral(s),
+            Span::new(start as u32, self.pos as u32, self.file_id),
+        )
     }
 
     fn lex_wide_char(&mut self, start: usize) -> Token {
@@ -804,7 +916,11 @@ impl Lexer {
         let span = Span::new(start as u32, self.pos as u32, self.file_id);
         if char_count <= 1 {
             // Single character: use CharLiteral with the char value
-            let ch = if value == 0 { '\0' } else { (value as u8) as char };
+            let ch = if value == 0 {
+                '\0'
+            } else {
+                (value as u8) as char
+            };
             Token::new(TokenKind::CharLiteral(ch), span)
         } else {
             // Multi-character constant: produce an IntLiteral with the combined value
@@ -854,7 +970,10 @@ impl Lexer {
                 // Note: \0 alone produces null; \040 produces space (32), etc.
                 let mut val = (ch - b'0') as u32;
                 for _ in 0..2 {
-                    if self.pos < self.input.len() && self.input[self.pos] >= b'0' && self.input[self.pos] <= b'7' {
+                    if self.pos < self.input.len()
+                        && self.input[self.pos] >= b'0'
+                        && self.input[self.pos] <= b'7'
+                    {
                         val = val * 8 + (self.input[self.pos] - b'0') as u32;
                         self.pos += 1;
                     } else {
@@ -890,7 +1009,11 @@ impl Lexer {
     }
 
     fn lex_identifier(&mut self, start: usize) -> Token {
-        while self.pos < self.input.len() && (self.input[self.pos] == b'_' || self.input[self.pos] == b'$' || self.input[self.pos].is_ascii_alphanumeric()) {
+        while self.pos < self.input.len()
+            && (self.input[self.pos] == b'_'
+                || self.input[self.pos] == b'$'
+                || self.input[self.pos].is_ascii_alphanumeric())
+        {
             self.pos += 1;
         }
 
@@ -1024,7 +1147,10 @@ impl Lexer {
                 }
             }
             b'.' => {
-                if self.pos + 1 < self.input.len() && self.input[self.pos] == b'.' && self.input[self.pos + 1] == b'.' {
+                if self.pos + 1 < self.input.len()
+                    && self.input[self.pos] == b'.'
+                    && self.input[self.pos + 1] == b'.'
+                {
                     self.pos += 2;
                     TokenKind::Ellipsis
                 } else {
@@ -1034,8 +1160,14 @@ impl Lexer {
             b'+' => {
                 if self.pos < self.input.len() {
                     match self.input[self.pos] {
-                        b'+' => { self.pos += 1; TokenKind::PlusPlus }
-                        b'=' => { self.pos += 1; TokenKind::PlusAssign }
+                        b'+' => {
+                            self.pos += 1;
+                            TokenKind::PlusPlus
+                        }
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::PlusAssign
+                        }
                         _ => TokenKind::Plus,
                     }
                 } else {
@@ -1045,9 +1177,18 @@ impl Lexer {
             b'-' => {
                 if self.pos < self.input.len() {
                     match self.input[self.pos] {
-                        b'-' => { self.pos += 1; TokenKind::MinusMinus }
-                        b'=' => { self.pos += 1; TokenKind::MinusAssign }
-                        b'>' => { self.pos += 1; TokenKind::Arrow }
+                        b'-' => {
+                            self.pos += 1;
+                            TokenKind::MinusMinus
+                        }
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::MinusAssign
+                        }
+                        b'>' => {
+                            self.pos += 1;
+                            TokenKind::Arrow
+                        }
                         _ => TokenKind::Minus,
                     }
                 } else {
@@ -1081,8 +1222,14 @@ impl Lexer {
             b'&' => {
                 if self.pos < self.input.len() {
                     match self.input[self.pos] {
-                        b'&' => { self.pos += 1; TokenKind::AmpAmp }
-                        b'=' => { self.pos += 1; TokenKind::AmpAssign }
+                        b'&' => {
+                            self.pos += 1;
+                            TokenKind::AmpAmp
+                        }
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::AmpAssign
+                        }
                         _ => TokenKind::Amp,
                     }
                 } else {
@@ -1092,8 +1239,14 @@ impl Lexer {
             b'|' => {
                 if self.pos < self.input.len() {
                     match self.input[self.pos] {
-                        b'|' => { self.pos += 1; TokenKind::PipePipe }
-                        b'=' => { self.pos += 1; TokenKind::PipeAssign }
+                        b'|' => {
+                            self.pos += 1;
+                            TokenKind::PipePipe
+                        }
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::PipeAssign
+                        }
                         _ => TokenKind::Pipe,
                     }
                 } else {
@@ -1136,7 +1289,10 @@ impl Lexer {
                                 TokenKind::LessLess
                             }
                         }
-                        b'=' => { self.pos += 1; TokenKind::LessEqual }
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::LessEqual
+                        }
                         _ => TokenKind::Less,
                     }
                 } else {
@@ -1155,7 +1311,10 @@ impl Lexer {
                                 TokenKind::GreaterGreater
                             }
                         }
-                        b'=' => { self.pos += 1; TokenKind::GreaterEqual }
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::GreaterEqual
+                        }
                         _ => TokenKind::Greater,
                     }
                 } else {

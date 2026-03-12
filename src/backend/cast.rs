@@ -77,8 +77,16 @@ pub fn classify_cast_with_f128(from_ty: IrType, to_ty: IrType, f128_is_native: b
         }
         // x86: F128 (x87 80-bit) is computed as F64. Treat F128 <-> F64 as noop,
         // and F128 <-> other as F64 <-> other.
-        let effective_from = if from_ty == IrType::F128 { IrType::F64 } else { from_ty };
-        let effective_to = if to_ty == IrType::F128 { IrType::F64 } else { to_ty };
+        let effective_from = if from_ty == IrType::F128 {
+            IrType::F64
+        } else {
+            from_ty
+        };
+        let effective_to = if to_ty == IrType::F128 {
+            IrType::F64
+        } else {
+            to_ty
+        };
         if effective_from == effective_to {
             return CastKind::Noop;
         }
@@ -86,12 +94,27 @@ pub fn classify_cast_with_f128(from_ty: IrType, to_ty: IrType, f128_is_native: b
     }
 
     // Ptr is equivalent to U64 on LP64 targets, U32 on ILP32 targets.
-    if (from_ty == IrType::Ptr || to_ty == IrType::Ptr) && !from_ty.is_float() && !to_ty.is_float() {
-        let ptr_int_ty = if crate::common::types::target_is_32bit() { IrType::U32 } else { IrType::U64 };
-        let effective_from = if from_ty == IrType::Ptr { ptr_int_ty } else { from_ty };
-        let effective_to = if to_ty == IrType::Ptr { ptr_int_ty } else { to_ty };
+    if (from_ty == IrType::Ptr || to_ty == IrType::Ptr) && !from_ty.is_float() && !to_ty.is_float()
+    {
+        let ptr_int_ty = if crate::common::types::target_is_32bit() {
+            IrType::U32
+        } else {
+            IrType::U64
+        };
+        let effective_from = if from_ty == IrType::Ptr {
+            ptr_int_ty
+        } else {
+            from_ty
+        };
+        let effective_to = if to_ty == IrType::Ptr {
+            ptr_int_ty
+        } else {
+            to_ty
+        };
         let ptr_sz = crate::common::types::target_ptr_size();
-        if effective_from == effective_to || (effective_from.size() == ptr_sz && effective_to.size() == ptr_sz) {
+        if effective_from == effective_to
+            || (effective_from.size() == ptr_sz && effective_to.size() == ptr_sz)
+        {
             return CastKind::Noop;
         }
         return classify_cast(effective_from, effective_to);

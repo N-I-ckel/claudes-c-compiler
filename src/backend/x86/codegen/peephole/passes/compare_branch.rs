@@ -26,7 +26,8 @@ pub(super) fn fuse_compare_and_branch(store: &mut LineStore, infos: &mut [LineIn
         let mut seq_indices = [0usize; CMP_FUSION_LOOKAHEAD];
         seq_indices[0] = i;
         let mut rest = [0usize; CMP_FUSION_LOOKAHEAD - 1];
-        let rest_count = collect_non_nop_indices::<{ CMP_FUSION_LOOKAHEAD - 1 }>(infos, i, len, &mut rest);
+        let rest_count =
+            collect_non_nop_indices::<{ CMP_FUSION_LOOKAHEAD - 1 }>(infos, i, len, &mut rest);
         seq_indices[1..(rest_count + 1)].copy_from_slice(&rest[..rest_count]);
         let seq_count = 1 + rest_count;
 
@@ -43,14 +44,18 @@ pub(super) fn fuse_compare_and_branch(store: &mut LineStore, infos: &mut [LineIn
         let set_line = infos[seq_indices[1]].trimmed(store.get(seq_indices[1]));
         let cc = match parse_setcc(set_line) {
             Some(c) => c,
-            None => { i += 1; continue; }
+            None => {
+                i += 1;
+                continue;
+            }
         };
 
         // Scan for testq %rax, %rax pattern.
         // Track StoreRbp offsets so we can bail out if any store's slot is
         // potentially read by another basic block (no matching load nearby).
         let mut test_idx = None;
-        let mut store_offsets: [i32; MAX_TRACKED_STORE_LOAD_OFFSETS] = [0; MAX_TRACKED_STORE_LOAD_OFFSETS];
+        let mut store_offsets: [i32; MAX_TRACKED_STORE_LOAD_OFFSETS] =
+            [0; MAX_TRACKED_STORE_LOAD_OFFSETS];
         let mut store_count = 0usize;
         let mut scan = 2;
         while scan < seq_count {
@@ -93,7 +98,10 @@ pub(super) fn fuse_compare_and_branch(store: &mut LineStore, infos: &mut [LineIn
 
         let test_scan = match test_idx {
             Some(t) => t,
-            None => { i += 1; continue; }
+            None => {
+                i += 1;
+                continue;
+            }
         };
 
         // If there are stores in the sequence, verify each has a matching load nearby.
@@ -104,7 +112,8 @@ pub(super) fn fuse_compare_and_branch(store: &mut LineStore, infos: &mut [LineIn
         if store_count > 0 {
             let range_start = seq_indices[1];
             let range_end = seq_indices[test_scan];
-            let mut load_offsets: [i32; MAX_TRACKED_STORE_LOAD_OFFSETS] = [0; MAX_TRACKED_STORE_LOAD_OFFSETS];
+            let mut load_offsets: [i32; MAX_TRACKED_STORE_LOAD_OFFSETS] =
+                [0; MAX_TRACKED_STORE_LOAD_OFFSETS];
             let mut load_count = 0usize;
             for ri in range_start..=range_end {
                 let off = match infos[ri].kind {
@@ -119,12 +128,14 @@ pub(super) fn fuse_compare_and_branch(store: &mut LineStore, infos: &mut [LineIn
                     _ => None,
                 };
                 if let Some(o) = off {
-                    if load_count < MAX_TRACKED_STORE_LOAD_OFFSETS { load_offsets[load_count] = o; load_count += 1; }
+                    if load_count < MAX_TRACKED_STORE_LOAD_OFFSETS {
+                        load_offsets[load_count] = o;
+                        load_count += 1;
+                    }
                 }
             }
-            let has_unmatched_store = (0..store_count).any(|si| {
-                !(0..load_count).any(|li| load_offsets[li] == store_offsets[si])
-            });
+            let has_unmatched_store = (0..store_count)
+                .any(|si| !(0..load_count).any(|li| load_offsets[li] == store_offsets[si]));
             if has_unmatched_store {
                 i += 1;
                 continue;
@@ -136,7 +147,8 @@ pub(super) fn fuse_compare_and_branch(store: &mut LineStore, infos: &mut [LineIn
             continue;
         }
 
-        let jmp_line = infos[seq_indices[test_scan + 1]].trimmed(store.get(seq_indices[test_scan + 1]));
+        let jmp_line =
+            infos[seq_indices[test_scan + 1]].trimmed(store.get(seq_indices[test_scan + 1]));
         let (is_jne, branch_target) = if let Some(target) = jmp_line.strip_prefix("jne ") {
             (true, target.trim())
         } else if let Some(target) = jmp_line.strip_prefix("je ") {

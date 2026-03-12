@@ -19,18 +19,18 @@
 //! - `emit` - Phase 10: executable layout and ELF32 emission
 //! - `link` - Orchestration: `link_builtin` and `link_shared` entry points
 
-#[allow(dead_code)] // ELF constants defined for completeness; not all used yet
-mod types;
-mod parse;
 mod dynsym;
-mod reloc;
+mod emit;
 mod gnu_hash;
 mod input;
-mod sections;
-mod symbols;
-mod shared;
-mod emit;
 mod link;
+mod parse;
+mod reloc;
+mod sections;
+mod shared;
+mod symbols;
+#[allow(dead_code)] // ELF constants defined for completeness; not all used yet
+mod types;
 
 use crate::backend::linker_common;
 
@@ -40,10 +40,18 @@ use crate::backend::linker_common;
 struct DynStrTab(linker_common::DynStrTab);
 
 impl DynStrTab {
-    fn new() -> Self { Self(linker_common::DynStrTab::new()) }
-    fn add(&mut self, s: &str) -> u32 { self.0.add(s) as u32 }
-    fn get_offset(&self, s: &str) -> u32 { self.0.get_offset(s) as u32 }
-    fn as_bytes(&self) -> &[u8] { self.0.as_bytes() }
+    fn new() -> Self {
+        Self(linker_common::DynStrTab::new())
+    }
+    fn add(&mut self, s: &str) -> u32 {
+        self.0.add(s) as u32
+    }
+    fn get_offset(&self, s: &str) -> u32 {
+        self.0.get_offset(s) as u32
+    }
+    fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
 }
 
 #[cfg(not(feature = "gcc_linker"))]

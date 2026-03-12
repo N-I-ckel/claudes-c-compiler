@@ -75,7 +75,12 @@ pub(super) fn eliminate_unused_callee_saves(store: &LineStore, infos: &mut [Line
                 j += 1;
                 continue;
             }
-            if let LineKind::StoreRbp { reg, offset, size: MoveSize::Q } = infos[j].kind {
+            if let LineKind::StoreRbp {
+                reg,
+                offset,
+                size: MoveSize::Q,
+            } = infos[j].kind
+            {
                 if is_callee_saved_reg(reg) && offset < 0 {
                     saves.push(CalleeSave {
                         reg,
@@ -120,7 +125,12 @@ pub(super) fn eliminate_unused_callee_saves(store: &LineStore, infos: &mut [Line
                     continue;
                 }
 
-                if let LineKind::LoadRbp { reg: load_reg, offset: load_offset, size: MoveSize::Q } = infos[k].kind {
+                if let LineKind::LoadRbp {
+                    reg: load_reg,
+                    offset: load_offset,
+                    size: MoveSize::Q,
+                } = infos[k].kind
+                {
                     if load_reg == reg && load_offset == save.offset && is_near_epilogue(infos, k) {
                         restore_indices.push(k);
                         continue;

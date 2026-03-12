@@ -1,11 +1,16 @@
 //! X86Codegen: variadic argument handling (va_arg, va_start, va_copy).
 
-use crate::ir::reexports::Value;
+use super::emit::{phys_reg_name, X86Codegen};
 use crate::common::types::IrType;
-use super::emit::{X86Codegen, phys_reg_name};
+use crate::ir::reexports::Value;
 
 impl X86Codegen {
-    pub(super) fn emit_va_arg_impl(&mut self, dest: &Value, va_list_ptr: &Value, result_ty: IrType) {
+    pub(super) fn emit_va_arg_impl(
+        &mut self,
+        dest: &Value,
+        va_list_ptr: &Value,
+        result_ty: IrType,
+    ) {
         let is_fp = result_ty.is_float();
         let is_f128 = result_ty.is_long_double();
         let label_reg = self.state.fresh_label("va_arg_reg");
@@ -15,7 +20,9 @@ impl X86Codegen {
         // Load va_list pointer into %rcx
         if let Some(&reg) = self.reg_assignments.get(&va_list_ptr.0) {
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_reg("    movq", reg_name, "rcx");
+            self.state
+                .out
+                .emit_instr_reg_reg("    movq", reg_name, "rcx");
         } else if let Some(slot) = self.state.get_slot(va_list_ptr.0) {
             if self.state.is_alloca(va_list_ptr.0) {
                 self.state.out.emit_instr_rbp_reg("    leaq", slot.0, "rcx");
@@ -92,11 +99,18 @@ impl X86Codegen {
         self.state.reg_cache.invalidate_all();
     }
 
-    pub(super) fn emit_va_arg_struct_impl(&mut self, dest_ptr: &Value, va_list_ptr: &Value, size: usize) {
+    pub(super) fn emit_va_arg_struct_impl(
+        &mut self,
+        dest_ptr: &Value,
+        va_list_ptr: &Value,
+        size: usize,
+    ) {
         // Load va_list pointer into %rcx
         if let Some(&reg) = self.reg_assignments.get(&va_list_ptr.0) {
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_reg("    movq", reg_name, "rcx");
+            self.state
+                .out
+                .emit_instr_reg_reg("    movq", reg_name, "rcx");
         } else if let Some(slot) = self.state.get_slot(va_list_ptr.0) {
             if self.state.is_alloca(va_list_ptr.0) {
                 self.state.out.emit_instr_rbp_reg("    leaq", slot.0, "rcx");
@@ -109,7 +123,9 @@ impl X86Codegen {
 
         if let Some(&reg) = self.reg_assignments.get(&dest_ptr.0) {
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_reg("    movq", reg_name, "rdi");
+            self.state
+                .out
+                .emit_instr_reg_reg("    movq", reg_name, "rdi");
         } else if let Some(slot) = self.state.get_slot(dest_ptr.0) {
             if self.state.is_alloca(dest_ptr.0) {
                 self.state.out.emit_instr_rbp_reg("    leaq", slot.0, "rdi");
@@ -122,8 +138,12 @@ impl X86Codegen {
         for i in 0..num_qwords {
             let offset = (i * 8) as i64;
             if offset + 8 <= size as i64 {
-                self.state.out.emit_instr_mem_reg("    movq", offset, "rsi", "rax");
-                self.state.out.emit_instr_reg_mem("    movq", "rax", offset, "rdi");
+                self.state
+                    .out
+                    .emit_instr_mem_reg("    movq", offset, "rsi", "rax");
+                self.state
+                    .out
+                    .emit_instr_reg_mem("    movq", "rax", offset, "rdi");
             } else {
                 let remaining = size - i * 8;
                 self.emit_partial_copy(offset, remaining);
@@ -133,7 +153,9 @@ impl X86Codegen {
         // Advance overflow_arg_area past the struct (8-byte aligned)
         if let Some(&reg) = self.reg_assignments.get(&va_list_ptr.0) {
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_reg("    movq", reg_name, "rcx");
+            self.state
+                .out
+                .emit_instr_reg_reg("    movq", reg_name, "rcx");
         } else if let Some(slot) = self.state.get_slot(va_list_ptr.0) {
             if self.state.is_alloca(va_list_ptr.0) {
                 self.state.out.emit_instr_rbp_reg("    leaq", slot.0, "rcx");
@@ -142,7 +164,9 @@ impl X86Codegen {
             }
         }
         let advance = size.div_ceil(8) * 8;
-        self.state.out.emit_instr_imm_mem("    addq", advance as i64, 8, "rcx");
+        self.state
+            .out
+            .emit_instr_imm_mem("    addq", advance as i64, 8, "rcx");
         self.state.reg_cache.invalidate_all();
     }
 
@@ -160,10 +184,12 @@ impl X86Codegen {
 
         use crate::common::types::EightbyteClass;
 
-        let gp_needed: usize = eightbyte_classes.iter()
+        let gp_needed: usize = eightbyte_classes
+            .iter()
             .filter(|c| **c == EightbyteClass::Integer)
             .count();
-        let fp_needed: usize = eightbyte_classes.iter()
+        let fp_needed: usize = eightbyte_classes
+            .iter()
             .filter(|c| **c == EightbyteClass::Sse)
             .count();
 
@@ -175,7 +201,9 @@ impl X86Codegen {
 
         if let Some(&reg) = self.reg_assignments.get(&dest_ptr.0) {
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_reg("    movq", reg_name, "rdi");
+            self.state
+                .out
+                .emit_instr_reg_reg("    movq", reg_name, "rdi");
         } else if let Some(slot) = self.state.get_slot(dest_ptr.0) {
             if self.state.is_alloca(dest_ptr.0) {
                 self.state.out.emit_instr_rbp_reg("    leaq", slot.0, "rdi");
@@ -194,7 +222,8 @@ impl X86Codegen {
                 need_fp_check = false;
             } else {
                 self.state.emit("    movl (%rcx), %eax");
-                self.state.emit_fmt(format_args!("    cmpl ${}, %eax", gp_threshold));
+                self.state
+                    .emit_fmt(format_args!("    cmpl ${}, %eax", gp_threshold));
                 self.state.out.emit_jcc_label("    ja", &label_mem);
             }
         }
@@ -204,7 +233,8 @@ impl X86Codegen {
                 self.state.out.emit_jmp_label(&label_mem);
             } else {
                 self.state.emit("    movl 4(%rcx), %eax");
-                self.state.emit_fmt(format_args!("    cmpl ${}, %eax", fp_threshold));
+                self.state
+                    .emit_fmt(format_args!("    cmpl ${}, %eax", fp_threshold));
                 self.state.out.emit_jcc_label("    ja", &label_mem);
             }
         }
@@ -221,21 +251,26 @@ impl X86Codegen {
                         self.state.emit("    movl (%rcx), %eax");
                         self.state.emit("    movslq %eax, %rdx");
                         self.state.emit("    movq (%rsi,%rdx), %rax");
-                        self.state.out.emit_instr_reg_mem("    movq", "rax", dest_offset, "rdi");
+                        self.state
+                            .out
+                            .emit_instr_reg_mem("    movq", "rax", dest_offset, "rdi");
                         self.state.emit("    addl $8, (%rcx)");
                     }
                     EightbyteClass::Sse => {
                         self.state.emit("    movl 4(%rcx), %eax");
                         self.state.emit("    movslq %eax, %rdx");
                         self.state.emit("    movsd (%rsi,%rdx), %xmm0");
-                        self.state.emit_fmt(format_args!("    movsd %xmm0, {}(%rdi)", dest_offset));
+                        self.state
+                            .emit_fmt(format_args!("    movsd %xmm0, {}(%rdi)", dest_offset));
                         self.state.emit("    addl $16, 4(%rcx)");
                     }
                     EightbyteClass::NoClass => {
                         self.state.emit("    movl (%rcx), %eax");
                         self.state.emit("    movslq %eax, %rdx");
                         self.state.emit("    movq (%rsi,%rdx), %rax");
-                        self.state.out.emit_instr_reg_mem("    movq", "rax", dest_offset, "rdi");
+                        self.state
+                            .out
+                            .emit_instr_reg_mem("    movq", "rax", dest_offset, "rdi");
                         self.state.emit("    addl $8, (%rcx)");
                     }
                 }
@@ -250,7 +285,9 @@ impl X86Codegen {
 
             if let Some(&reg) = self.reg_assignments.get(&dest_ptr.0) {
                 let reg_name = phys_reg_name(reg);
-                self.state.out.emit_instr_reg_reg("    movq", reg_name, "rdi");
+                self.state
+                    .out
+                    .emit_instr_reg_reg("    movq", reg_name, "rdi");
             } else if let Some(slot) = self.state.get_slot(dest_ptr.0) {
                 if self.state.is_alloca(dest_ptr.0) {
                     self.state.out.emit_instr_rbp_reg("    leaq", slot.0, "rdi");
@@ -265,8 +302,12 @@ impl X86Codegen {
             for i in 0..num_qwords {
                 let offset = (i * 8) as i64;
                 if offset + 8 <= size as i64 {
-                    self.state.out.emit_instr_mem_reg("    movq", offset, "rsi", "rax");
-                    self.state.out.emit_instr_reg_mem("    movq", "rax", offset, "rdi");
+                    self.state
+                        .out
+                        .emit_instr_mem_reg("    movq", offset, "rsi", "rax");
+                    self.state
+                        .out
+                        .emit_instr_reg_mem("    movq", "rax", offset, "rdi");
                 } else {
                     let remaining = size - i * 8;
                     self.emit_partial_copy(offset, remaining);
@@ -275,7 +316,9 @@ impl X86Codegen {
 
             let advance = size.div_ceil(8) * 8;
             self.load_va_list_ptr_to_rcx(va_list_ptr);
-            self.state.out.emit_instr_imm_mem("    addq", advance as i64, 8, "rcx");
+            self.state
+                .out
+                .emit_instr_imm_mem("    addq", advance as i64, 8, "rcx");
         }
 
         // ==== End ====
@@ -286,7 +329,9 @@ impl X86Codegen {
     pub(super) fn emit_va_start_impl(&mut self, va_list_ptr: &Value) {
         if let Some(&reg) = self.reg_assignments.get(&va_list_ptr.0) {
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_reg("    movq", reg_name, "rax");
+            self.state
+                .out
+                .emit_instr_reg_reg("    movq", reg_name, "rax");
         } else if let Some(slot) = self.state.get_slot(va_list_ptr.0) {
             if self.state.is_alloca(va_list_ptr.0) {
                 self.state.out.emit_instr_rbp_reg("    leaq", slot.0, "rax");
@@ -295,18 +340,26 @@ impl X86Codegen {
             }
         }
         let gp_offset = self.num_named_int_params.min(6) * 8;
-        self.state.out.emit_instr_imm_mem("    movl", gp_offset as i64, 0, "rax");
+        self.state
+            .out
+            .emit_instr_imm_mem("    movl", gp_offset as i64, 0, "rax");
         let fp_offset = if self.no_sse {
             176
         } else {
             48 + self.num_named_fp_params.min(8) * 16
         };
-        self.state.out.emit_instr_imm_mem("    movl", fp_offset as i64, 4, "rax");
+        self.state
+            .out
+            .emit_instr_imm_mem("    movl", fp_offset as i64, 4, "rax");
         let overflow_offset = 16 + self.num_named_stack_bytes;
-        self.state.out.emit_instr_rbp_reg("    leaq", overflow_offset as i64, "rcx");
+        self.state
+            .out
+            .emit_instr_rbp_reg("    leaq", overflow_offset as i64, "rcx");
         self.state.emit("    movq %rcx, 8(%rax)");
         let reg_save = self.reg_save_area_offset;
-        self.state.out.emit_instr_rbp_reg("    leaq", reg_save, "rcx");
+        self.state
+            .out
+            .emit_instr_rbp_reg("    leaq", reg_save, "rcx");
         self.state.emit("    movq %rcx, 16(%rax)");
         self.state.reg_cache.invalidate_all();
     }
@@ -314,22 +367,34 @@ impl X86Codegen {
     pub(super) fn emit_va_copy_impl(&mut self, dest_ptr: &Value, src_ptr: &Value) {
         if let Some(&reg) = self.reg_assignments.get(&src_ptr.0) {
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_reg("    movq", reg_name, "rsi");
+            self.state
+                .out
+                .emit_instr_reg_reg("    movq", reg_name, "rsi");
         } else if let Some(src_slot) = self.state.get_slot(src_ptr.0) {
             if self.state.is_alloca(src_ptr.0) {
-                self.state.out.emit_instr_rbp_reg("    leaq", src_slot.0, "rsi");
+                self.state
+                    .out
+                    .emit_instr_rbp_reg("    leaq", src_slot.0, "rsi");
             } else {
-                self.state.out.emit_instr_rbp_reg("    movq", src_slot.0, "rsi");
+                self.state
+                    .out
+                    .emit_instr_rbp_reg("    movq", src_slot.0, "rsi");
             }
         }
         if let Some(&reg) = self.reg_assignments.get(&dest_ptr.0) {
             let reg_name = phys_reg_name(reg);
-            self.state.out.emit_instr_reg_reg("    movq", reg_name, "rdi");
+            self.state
+                .out
+                .emit_instr_reg_reg("    movq", reg_name, "rdi");
         } else if let Some(dest_slot) = self.state.get_slot(dest_ptr.0) {
             if self.state.is_alloca(dest_ptr.0) {
-                self.state.out.emit_instr_rbp_reg("    leaq", dest_slot.0, "rdi");
+                self.state
+                    .out
+                    .emit_instr_rbp_reg("    leaq", dest_slot.0, "rdi");
             } else {
-                self.state.out.emit_instr_rbp_reg("    movq", dest_slot.0, "rdi");
+                self.state
+                    .out
+                    .emit_instr_rbp_reg("    movq", dest_slot.0, "rdi");
             }
         }
         self.state.emit("    movq (%rsi), %rax");
@@ -344,35 +409,63 @@ impl X86Codegen {
     /// Helper to emit partial struct copy for the last partial qword.
     fn emit_partial_copy(&mut self, offset: i64, remaining: usize) {
         if remaining >= 4 {
-            self.state.out.emit_instr_mem_reg("    movl", offset, "rsi", "eax");
-            self.state.out.emit_instr_reg_mem("    movl", "eax", offset, "rdi");
+            self.state
+                .out
+                .emit_instr_mem_reg("    movl", offset, "rsi", "eax");
+            self.state
+                .out
+                .emit_instr_reg_mem("    movl", "eax", offset, "rdi");
             if remaining > 4 {
                 let off4 = offset + 4;
                 if remaining >= 6 {
-                    self.state.out.emit_instr_mem_reg("    movzwl", off4, "rsi", "eax");
-                    self.state.out.emit_instr_reg_mem("    movw", "ax", off4, "rdi");
+                    self.state
+                        .out
+                        .emit_instr_mem_reg("    movzwl", off4, "rsi", "eax");
+                    self.state
+                        .out
+                        .emit_instr_reg_mem("    movw", "ax", off4, "rdi");
                     if remaining == 7 {
                         let off6 = offset + 6;
-                        self.state.out.emit_instr_mem_reg("    movzbl", off6, "rsi", "eax");
-                        self.state.out.emit_instr_reg_mem("    movb", "al", off6, "rdi");
+                        self.state
+                            .out
+                            .emit_instr_mem_reg("    movzbl", off6, "rsi", "eax");
+                        self.state
+                            .out
+                            .emit_instr_reg_mem("    movb", "al", off6, "rdi");
                     }
                 } else {
                     // remaining == 5
-                    self.state.out.emit_instr_mem_reg("    movzbl", off4, "rsi", "eax");
-                    self.state.out.emit_instr_reg_mem("    movb", "al", off4, "rdi");
+                    self.state
+                        .out
+                        .emit_instr_mem_reg("    movzbl", off4, "rsi", "eax");
+                    self.state
+                        .out
+                        .emit_instr_reg_mem("    movb", "al", off4, "rdi");
                 }
             }
         } else if remaining >= 2 {
-            self.state.out.emit_instr_mem_reg("    movzwl", offset, "rsi", "eax");
-            self.state.out.emit_instr_reg_mem("    movw", "ax", offset, "rdi");
+            self.state
+                .out
+                .emit_instr_mem_reg("    movzwl", offset, "rsi", "eax");
+            self.state
+                .out
+                .emit_instr_reg_mem("    movw", "ax", offset, "rdi");
             if remaining == 3 {
                 let off2 = offset + 2;
-                self.state.out.emit_instr_mem_reg("    movzbl", off2, "rsi", "eax");
-                self.state.out.emit_instr_reg_mem("    movb", "al", off2, "rdi");
+                self.state
+                    .out
+                    .emit_instr_mem_reg("    movzbl", off2, "rsi", "eax");
+                self.state
+                    .out
+                    .emit_instr_reg_mem("    movb", "al", off2, "rdi");
             }
         } else {
-            self.state.out.emit_instr_mem_reg("    movzbl", offset, "rsi", "eax");
-            self.state.out.emit_instr_reg_mem("    movb", "al", offset, "rdi");
+            self.state
+                .out
+                .emit_instr_mem_reg("    movzbl", offset, "rsi", "eax");
+            self.state
+                .out
+                .emit_instr_reg_mem("    movb", "al", offset, "rdi");
         }
     }
 }

@@ -7,18 +7,10 @@
 //! - `classify_struct_return`: shared sret/two-reg classification logic
 //! - Helpers: maybe_narrow_call_result, is_function_variadic, get_func_ptr_return_ir_type
 
-use crate::frontend::parser::ast::Expr;
-use crate::ir::reexports::{
-    CallInfo,
-    Instruction,
-    IrBinOp,
-    IrConst,
-    Operand,
-    Terminator,
-    Value,
-};
-use crate::common::types::{AddressSpace, IrType, CType, target_int_ir_type};
 use super::lower::Lowerer;
+use crate::common::types::{target_int_ir_type, AddressSpace, CType, IrType};
+use crate::frontend::parser::ast::Expr;
+use crate::ir::reexports::{CallInfo, Instruction, IrBinOp, IrConst, Operand, Terminator, Value};
 
 impl Lowerer {
     /// Classify a struct return size into sret (hidden pointer) or two-register return.
@@ -154,11 +146,33 @@ impl Lowerer {
         }
 
         // Determine sret/two-reg return convention
-        let (sret_size, two_reg_size, call_ret_classes) = if let Expr::Identifier(name, _) = stripped_func {
-            if self.is_func_ptr_variable(name) {
-                // Indirect call through function pointer variable
-                // TODO: compute ret_eightbyte_classes from the function pointer's
-                // return type to support mixed SSE/INTEGER struct returns via fptrs
+        let (sret_size, two_reg_size, call_ret_classes) =
+            if let Expr::Identifier(name, _) = stripped_func {
+                if self.is_func_ptr_variable(name) {
+                    // Indirect call through function pointer variable
+                    // TODO: compute ret_eightbyte_classes from the function pointer's
+                    // return type to support mixed SSE/INTEGER struct returns via fptrs
+                    match self.get_call_return_struct_size(effective_func) {
+                        Some(size) => {
+                            let (s, t) = Self::classify_struct_return(size);
+                            (s, t, Vec::new())
+                        }
+                        None => (None, None, Vec::new()),
+                    }
+                } else {
+                    // Direct function call - look up by function name
+                    let sig = self.func_meta.sigs.get(name.as_str());
+                    (
+                        sig.and_then(|s| s.sret_size),
+                        sig.and_then(|s| s.two_reg_ret_size),
+                        sig.map(|s| s.ret_eightbyte_classes.clone())
+                            .unwrap_or_default(),
+                    )
+                }
+            } else {
+                // Non-identifier function expression (e.g., array[i]())
+                // TODO: compute ret_eightbyte_classes from expression return type
+                // to support mixed SSE/INTEGER struct returns via indirect calls
                 match self.get_call_return_struct_size(effective_func) {
                     Some(size) => {
                         let (s, t) = Self::classify_struct_return(size);
@@ -166,30 +180,17 @@ impl Lowerer {
                     }
                     None => (None, None, Vec::new()),
                 }
-            } else {
-                // Direct function call - look up by function name
-                let sig = self.func_meta.sigs.get(name.as_str());
-                (
-                    sig.and_then(|s| s.sret_size),
-                    sig.and_then(|s| s.two_reg_ret_size),
-                    sig.map(|s| s.ret_eightbyte_classes.clone()).unwrap_or_default(),
-                )
-            }
-        } else {
-            // Non-identifier function expression (e.g., array[i]())
-            // TODO: compute ret_eightbyte_classes from expression return type
-            // to support mixed SSE/INTEGER struct returns via indirect calls
-            match self.get_call_return_struct_size(effective_func) {
-                Some(size) => {
-                    let (s, t) = Self::classify_struct_return(size);
-                    (s, t, Vec::new())
-                }
-                None => (None, None, Vec::new()),
-            }
-        };
+            };
 
         // Lower arguments with implicit casts
-        let (mut arg_vals, mut arg_types, mut struct_arg_sizes, mut struct_arg_aligns, mut struct_arg_classes, mut struct_arg_riscv_float_classes) = self.lower_call_arguments(effective_func, args);
+        let (
+            mut arg_vals,
+            mut arg_types,
+            mut struct_arg_sizes,
+            mut struct_arg_aligns,
+            mut struct_arg_classes,
+            mut struct_arg_riscv_float_classes,
+        ) = self.lower_call_arguments(effective_func, args);
 
         // Detect variadic status early (needed for complex arg decomposition)
         let call_is_variadic = if let Expr::Identifier(name, _) = stripped_func {
@@ -201,22 +202,42 @@ impl Lowerer {
         // Decompose complex double/float arguments into (real, imag) pairs for ABI compliance
         let param_ctypes_for_decompose = if let Expr::Identifier(name, _) = stripped_func {
             let sig_for_decompose = if self.is_func_ptr_variable(name) {
-                self.func_meta.ptr_sigs.get(name.as_str()).or_else(|| self.func_meta.sigs.get(name.as_str()))
+                self.func_meta
+                    .ptr_sigs
+                    .get(name.as_str())
+                    .or_else(|| self.func_meta.sigs.get(name.as_str()))
             } else {
                 self.func_meta.sigs.get(name.as_str())
             };
-            sig_for_decompose.map(|s| s.param_ctypes.clone()).filter(|v| !v.is_empty())
+            sig_for_decompose
+                .map(|s| s.param_ctypes.clone())
+                .filter(|v| !v.is_empty())
         } else {
             None
         };
-        self.decompose_complex_call_args(&mut arg_vals, &mut arg_types, &mut struct_arg_sizes, &mut struct_arg_aligns, &mut struct_arg_classes, &param_ctypes_for_decompose, args, call_is_variadic);
+        self.decompose_complex_call_args(
+            &mut arg_vals,
+            &mut arg_types,
+            &mut struct_arg_sizes,
+            &mut struct_arg_aligns,
+            &mut struct_arg_classes,
+            &param_ctypes_for_decompose,
+            args,
+            call_is_variadic,
+        );
 
         let dest = self.fresh_value();
 
         // For sret calls, allocate space and prepend hidden pointer argument
         let sret_alloca = if let Some(size) = sret_size {
             let alloca = self.fresh_value();
-            self.emit(Instruction::Alloca { dest: alloca, ty: IrType::Ptr, size, align: 0, volatile: false });
+            self.emit(Instruction::Alloca {
+                dest: alloca,
+                ty: IrType::Ptr,
+                size,
+                align: 0,
+                volatile: false,
+            });
             arg_vals.insert(0, Operand::Value(alloca));
             arg_types.insert(0, IrType::Ptr);
             struct_arg_sizes.insert(0, None); // sret pointer is not a struct arg
@@ -233,7 +254,10 @@ impl Lowerer {
             let variadic = call_is_variadic;
             let n_fixed = if variadic {
                 let variadic_sig = if self.is_func_ptr_variable(name) {
-                    self.func_meta.ptr_sigs.get(name.as_str()).or_else(|| self.func_meta.sigs.get(name.as_str()))
+                    self.func_meta
+                        .ptr_sigs
+                        .get(name.as_str())
+                        .or_else(|| self.func_meta.sigs.get(name.as_str()))
                 } else {
                     self.func_meta.sigs.get(name.as_str())
                 };
@@ -242,16 +266,23 @@ impl Lowerer {
                         let decomposes_cld = self.decomposes_complex_long_double();
                         let decomposes_cd = self.decomposes_complex_double();
                         let decomposes_cf = self.decomposes_complex_float();
-                        sig.param_ctypes.iter().map(|ct| {
-                            match ct {
-                                CType::ComplexDouble if decomposes_cd => 2,
-                                // Fixed ComplexFloat params are decomposed into 2 FP regs
-                                // on 64-bit targets (not x86-64 packed, not i686 struct)
-                                CType::ComplexFloat if decomposes_cf && !self.uses_packed_complex_float() => 2,
-                                CType::ComplexLongDouble if decomposes_cld => 2,
-                                _ => 1,
-                            }
-                        }).sum()
+                        sig.param_ctypes
+                            .iter()
+                            .map(|ct| {
+                                match ct {
+                                    CType::ComplexDouble if decomposes_cd => 2,
+                                    // Fixed ComplexFloat params are decomposed into 2 FP regs
+                                    // on 64-bit targets (not x86-64 packed, not i686 struct)
+                                    CType::ComplexFloat
+                                        if decomposes_cf && !self.uses_packed_complex_float() =>
+                                    {
+                                        2
+                                    }
+                                    CType::ComplexLongDouble if decomposes_cld => 2,
+                                    _ => 1,
+                                }
+                            })
+                            .sum()
                     } else if !sig.param_types.is_empty() {
                         sig.param_types.len()
                     } else {
@@ -269,7 +300,21 @@ impl Lowerer {
         };
 
         // Dispatch: direct call, function pointer call, or indirect call
-        let call_ret_ty = self.emit_call_instruction(effective_func, dest, arg_vals, arg_types, struct_arg_sizes, struct_arg_aligns, struct_arg_classes, struct_arg_riscv_float_classes, call_variadic, num_fixed_args, two_reg_size, sret_size, call_ret_classes);
+        let call_ret_ty = self.emit_call_instruction(
+            effective_func,
+            dest,
+            arg_vals,
+            arg_types,
+            struct_arg_sizes,
+            struct_arg_aligns,
+            struct_arg_classes,
+            struct_arg_riscv_float_classes,
+            call_variadic,
+            num_fixed_args,
+            two_reg_size,
+            sret_size,
+            call_ret_classes,
+        );
 
         // After call to noreturn function, emit unreachable and start dead block.
         // Unlike error_functions (which skip the call entirely), noreturn functions
@@ -318,19 +363,56 @@ impl Lowerer {
     /// Unpack a two-register (I128) struct return into a struct alloca.
     fn unpack_two_reg_return(&mut self, dest: Value, size: usize) -> Operand {
         let alloca = self.fresh_value();
-        self.emit(Instruction::Alloca { dest: alloca, ty: IrType::Ptr, size, align: 0, volatile: false });
+        self.emit(Instruction::Alloca {
+            dest: alloca,
+            ty: IrType::Ptr,
+            size,
+            align: 0,
+            volatile: false,
+        });
         // Extract low 8 bytes (rax)
         let lo = self.fresh_value();
-        self.emit(Instruction::Cast { dest: lo, src: Operand::Value(dest), from_ty: IrType::I128, to_ty: IrType::I64 });
-        self.emit(Instruction::Store { val: Operand::Value(lo), ptr: alloca, ty: IrType::I64 , seg_override: AddressSpace::Default });
+        self.emit(Instruction::Cast {
+            dest: lo,
+            src: Operand::Value(dest),
+            from_ty: IrType::I128,
+            to_ty: IrType::I64,
+        });
+        self.emit(Instruction::Store {
+            val: Operand::Value(lo),
+            ptr: alloca,
+            ty: IrType::I64,
+            seg_override: AddressSpace::Default,
+        });
         // Extract high bytes (rdx): shift right by 64
         let shifted = self.fresh_value();
-        self.emit(Instruction::BinOp { dest: shifted, op: IrBinOp::LShr, lhs: Operand::Value(dest), rhs: Operand::Const(IrConst::I64(64)), ty: IrType::I128 });
+        self.emit(Instruction::BinOp {
+            dest: shifted,
+            op: IrBinOp::LShr,
+            lhs: Operand::Value(dest),
+            rhs: Operand::Const(IrConst::I64(64)),
+            ty: IrType::I128,
+        });
         let hi = self.fresh_value();
-        self.emit(Instruction::Cast { dest: hi, src: Operand::Value(shifted), from_ty: IrType::I128, to_ty: IrType::I64 });
+        self.emit(Instruction::Cast {
+            dest: hi,
+            src: Operand::Value(shifted),
+            from_ty: IrType::I128,
+            to_ty: IrType::I64,
+        });
         let hi_ptr = self.fresh_value();
-        self.emit(Instruction::GetElementPtr { dest: hi_ptr, base: alloca, offset: Operand::Const(IrConst::I64(8)), ty: IrType::I64 });
-        self.emit(Instruction::Store { val: Operand::Value(hi), ptr: hi_ptr, ty: IrType::I64 , seg_override: AddressSpace::Default });
+        self.emit(Instruction::GetElementPtr {
+            dest: hi_ptr,
+            base: alloca,
+            offset: Operand::Const(IrConst::I64(8)),
+            ty: IrType::I64,
+        });
+        self.emit(Instruction::Store {
+            val: Operand::Value(hi),
+            ptr: hi_ptr,
+            ty: IrType::I64,
+            seg_override: AddressSpace::Default,
+        });
         Operand::Value(alloca)
     }
 
@@ -345,33 +427,73 @@ impl Lowerer {
                     // x86-64: two packed F32 returned in xmm0 as F64
                     // Store the raw 8 bytes (two F32s) into an alloca
                     let alloca = self.fresh_value();
-                    self.emit(Instruction::Alloca { dest: alloca, ty: IrType::Ptr, size: 8, align: 0, volatile: false });
-                    self.emit(Instruction::Store { val: Operand::Value(dest), ptr: alloca, ty: IrType::F64 , seg_override: AddressSpace::Default });
+                    self.emit(Instruction::Alloca {
+                        dest: alloca,
+                        ty: IrType::Ptr,
+                        size: 8,
+                        align: 0,
+                        volatile: false,
+                    });
+                    self.emit(Instruction::Store {
+                        val: Operand::Value(dest),
+                        ptr: alloca,
+                        ty: IrType::F64,
+                        seg_override: AddressSpace::Default,
+                    });
                     Some(Operand::Value(alloca))
                 } else if !self.decomposes_complex_float() {
                     // i686: two packed F32 returned in eax:edx as I64
                     // Store the raw 8 bytes (two F32s) into an alloca
                     let alloca = self.fresh_value();
-                    self.emit(Instruction::Alloca { dest: alloca, ty: IrType::Ptr, size: 8, align: 0, volatile: false });
-                    self.emit(Instruction::Store { val: Operand::Value(dest), ptr: alloca, ty: IrType::I64 , seg_override: AddressSpace::Default });
+                    self.emit(Instruction::Alloca {
+                        dest: alloca,
+                        ty: IrType::Ptr,
+                        size: 8,
+                        align: 0,
+                        volatile: false,
+                    });
+                    self.emit(Instruction::Store {
+                        val: Operand::Value(dest),
+                        ptr: alloca,
+                        ty: IrType::I64,
+                        seg_override: AddressSpace::Default,
+                    });
                     Some(Operand::Value(alloca))
                 } else {
                     // ARM/RISC-V: real F32 in first FP reg (dest), imag F32 in second FP reg
                     let imag_val = self.fresh_value();
                     self.emit(Instruction::GetReturnF32Second { dest: imag_val });
                     let alloca = self.fresh_value();
-                    self.emit(Instruction::Alloca { dest: alloca, ty: IrType::Ptr, size: 8, align: 0, volatile: false });
+                    self.emit(Instruction::Alloca {
+                        dest: alloca,
+                        ty: IrType::Ptr,
+                        size: 8,
+                        align: 0,
+                        volatile: false,
+                    });
                     // Store real part (F32) at offset 0
-                    self.emit(Instruction::Store { val: Operand::Value(dest), ptr: alloca, ty: IrType::F32 , seg_override: AddressSpace::Default });
+                    self.emit(Instruction::Store {
+                        val: Operand::Value(dest),
+                        ptr: alloca,
+                        ty: IrType::F32,
+                        seg_override: AddressSpace::Default,
+                    });
                     // Store imag part (F32) at offset 4
                     let imag_ptr = self.fresh_value();
                     let ptr_int_ty = crate::common::types::target_int_ir_type();
                     self.emit(Instruction::BinOp {
-                        dest: imag_ptr, op: IrBinOp::Add,
-                        lhs: Operand::Value(alloca), rhs: Operand::Const(IrConst::ptr_int(4)),
+                        dest: imag_ptr,
+                        op: IrBinOp::Add,
+                        lhs: Operand::Value(alloca),
+                        rhs: Operand::Const(IrConst::ptr_int(4)),
                         ty: ptr_int_ty,
                     });
-                    self.emit(Instruction::Store { val: Operand::Value(imag_val), ptr: imag_ptr, ty: IrType::F32 , seg_override: AddressSpace::Default });
+                    self.emit(Instruction::Store {
+                        val: Operand::Value(imag_val),
+                        ptr: imag_ptr,
+                        ty: IrType::F32,
+                        seg_override: AddressSpace::Default,
+                    });
                     Some(Operand::Value(alloca))
                 }
             }
@@ -381,16 +503,34 @@ impl Lowerer {
                 let imag_val = self.fresh_value();
                 self.emit(Instruction::GetReturnF64Second { dest: imag_val });
                 let alloca = self.fresh_value();
-                self.emit(Instruction::Alloca { dest: alloca, ty: IrType::Ptr, size: 16, align: 0, volatile: false });
-                self.emit(Instruction::Store { val: Operand::Value(dest), ptr: alloca, ty: IrType::F64 , seg_override: AddressSpace::Default });
+                self.emit(Instruction::Alloca {
+                    dest: alloca,
+                    ty: IrType::Ptr,
+                    size: 16,
+                    align: 0,
+                    volatile: false,
+                });
+                self.emit(Instruction::Store {
+                    val: Operand::Value(dest),
+                    ptr: alloca,
+                    ty: IrType::F64,
+                    seg_override: AddressSpace::Default,
+                });
                 let imag_ptr = self.fresh_value();
                 let ptr_int_ty = crate::common::types::target_int_ir_type();
                 self.emit(Instruction::BinOp {
-                    dest: imag_ptr, op: IrBinOp::Add,
-                    lhs: Operand::Value(alloca), rhs: Operand::Const(IrConst::ptr_int(8)),
+                    dest: imag_ptr,
+                    op: IrBinOp::Add,
+                    lhs: Operand::Value(alloca),
+                    rhs: Operand::Const(IrConst::ptr_int(8)),
                     ty: ptr_int_ty,
                 });
-                self.emit(Instruction::Store { val: Operand::Value(imag_val), ptr: imag_ptr, ty: IrType::F64 , seg_override: AddressSpace::Default });
+                self.emit(Instruction::Store {
+                    val: Operand::Value(imag_val),
+                    ptr: imag_ptr,
+                    ty: IrType::F64,
+                    seg_override: AddressSpace::Default,
+                });
                 Some(Operand::Value(alloca))
             }
             CType::ComplexLongDouble if self.returns_complex_long_double_in_regs() => {
@@ -400,18 +540,36 @@ impl Lowerer {
                 let imag_val = self.fresh_value();
                 self.emit(Instruction::GetReturnF128Second { dest: imag_val });
                 let alloca = self.fresh_value();
-                self.emit(Instruction::Alloca { dest: alloca, ty: IrType::Ptr, size: 32, align: 16, volatile: false });
+                self.emit(Instruction::Alloca {
+                    dest: alloca,
+                    ty: IrType::Ptr,
+                    size: 32,
+                    align: 16,
+                    volatile: false,
+                });
                 // Store real part (F128) at offset 0
-                self.emit(Instruction::Store { val: Operand::Value(dest), ptr: alloca, ty: IrType::F128, seg_override: AddressSpace::Default });
+                self.emit(Instruction::Store {
+                    val: Operand::Value(dest),
+                    ptr: alloca,
+                    ty: IrType::F128,
+                    seg_override: AddressSpace::Default,
+                });
                 // Store imag part (F128) at offset 16
                 let imag_ptr = self.fresh_value();
                 let ptr_int_ty = crate::common::types::target_int_ir_type();
                 self.emit(Instruction::BinOp {
-                    dest: imag_ptr, op: IrBinOp::Add,
-                    lhs: Operand::Value(alloca), rhs: Operand::Const(IrConst::ptr_int(16)),
+                    dest: imag_ptr,
+                    op: IrBinOp::Add,
+                    lhs: Operand::Value(alloca),
+                    rhs: Operand::Const(IrConst::ptr_int(16)),
                     ty: ptr_int_ty,
                 });
-                self.emit(Instruction::Store { val: Operand::Value(imag_val), ptr: imag_ptr, ty: IrType::F128, seg_override: AddressSpace::Default });
+                self.emit(Instruction::Store {
+                    val: Operand::Value(imag_val),
+                    ptr: imag_ptr,
+                    ty: IrType::F128,
+                    seg_override: AddressSpace::Default,
+                });
                 Some(Operand::Value(alloca))
             }
             _ => None,
@@ -423,7 +581,18 @@ impl Lowerer {
     /// Returns (arg_vals, arg_types, struct_arg_sizes, struct_arg_aligns, struct_arg_classes) where struct_arg_sizes[i] is
     /// Some(size) if the ith argument is a struct/union passed by value, and struct_arg_aligns[i]
     /// is Some(align) for struct args.
-    pub(super) fn lower_call_arguments(&mut self, func: &Expr, args: &[Expr]) -> (Vec<Operand>, Vec<IrType>, Vec<Option<usize>>, Vec<Option<usize>>, Vec<Vec<crate::common::types::EightbyteClass>>, Vec<Option<crate::common::types::RiscvFloatClass>>) {
+    pub(super) fn lower_call_arguments(
+        &mut self,
+        func: &Expr,
+        args: &[Expr],
+    ) -> (
+        Vec<Operand>,
+        Vec<IrType>,
+        Vec<Option<usize>>,
+        Vec<Option<usize>>,
+        Vec<Vec<crate::common::types::EightbyteClass>>,
+        Vec<Option<crate::common::types::RiscvFloatClass>>,
+    ) {
         // Extract function name from direct calls, or the underlying variable name
         // from indirect calls through function pointers (e.g., (*afp)(args) -> "afp").
         let func_name = match func {
@@ -431,7 +600,9 @@ impl Lowerer {
             Expr::Deref(inner, _) => {
                 if let Expr::Identifier(name, _) = inner.as_ref() {
                     Some(name.as_str())
-                } else { None }
+                } else {
+                    None
+                }
             }
             _ => None,
         };
@@ -441,10 +612,14 @@ impl Lowerer {
         // actual function pointer's signature.
         let sig = func_name.and_then(|name| {
             if self.is_func_ptr_variable(name) {
-                self.func_meta.ptr_sigs.get(name)
+                self.func_meta
+                    .ptr_sigs
+                    .get(name)
                     .or_else(|| self.func_meta.sigs.get(name))
             } else {
-                self.func_meta.sigs.get(name)
+                self.func_meta
+                    .sigs
+                    .get(name)
                     .or_else(|| self.func_meta.ptr_sigs.get(name))
             }
         });
@@ -463,247 +638,327 @@ impl Lowerer {
         // If the signature has an empty parameter list (unprototyped function like `int f()`),
         // all arguments need default argument promotions (float->double, char/short->int).
         let is_unprototyped = sig.is_some_and(|s| s.param_types.is_empty());
-        let param_types: Option<Vec<IrType>> = sig.map(|s| s.param_types.clone()).filter(|v| !v.is_empty())
-            .or_else(|| inferred_from_ctype.as_ref().map(|(pt, _, _, _)| pt.clone()).filter(|v| !v.is_empty()));
-        let param_ctypes: Option<Vec<CType>> = sig.map(|s| s.param_ctypes.clone()).filter(|v| !v.is_empty())
-            .or_else(|| inferred_from_ctype.as_ref().map(|(_, pc, _, _)| pc.clone()).filter(|v| !v.is_empty()));
-        let param_bool_flags: Option<Vec<bool>> = sig.map(|s| s.param_bool_flags.clone()).filter(|v| !v.is_empty())
-            .or_else(|| inferred_from_ctype.as_ref().map(|(_, _, pb, _)| pb.clone()).filter(|v| !v.is_empty()));
-        let pre_call_variadic = func_name.is_some_and(|name|
-            self.is_function_variadic(name)
-        ) || inferred_from_ctype.as_ref().is_some_and(|(_, _, _, variadic)| *variadic);
+        let param_types: Option<Vec<IrType>> = sig
+            .map(|s| s.param_types.clone())
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                inferred_from_ctype
+                    .as_ref()
+                    .map(|(pt, _, _, _)| pt.clone())
+                    .filter(|v| !v.is_empty())
+            });
+        let param_ctypes: Option<Vec<CType>> = sig
+            .map(|s| s.param_ctypes.clone())
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                inferred_from_ctype
+                    .as_ref()
+                    .map(|(_, pc, _, _)| pc.clone())
+                    .filter(|v| !v.is_empty())
+            });
+        let param_bool_flags: Option<Vec<bool>> = sig
+            .map(|s| s.param_bool_flags.clone())
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                inferred_from_ctype
+                    .as_ref()
+                    .map(|(_, _, pb, _)| pb.clone())
+                    .filter(|v| !v.is_empty())
+            });
+        let pre_call_variadic = func_name.is_some_and(|name| self.is_function_variadic(name))
+            || inferred_from_ctype
+                .as_ref()
+                .is_some_and(|(_, _, _, variadic)| *variadic);
 
         let mut arg_types = Vec::with_capacity(args.len());
         // Track argument indices where a complex expression was converted to a
         // scalar type (e.g., complex-to-bool). These should NOT get a
         // struct_arg_size based on the original expression's CType.
         let mut complex_converted_to_scalar: Vec<bool> = vec![false; args.len()];
-        let arg_vals: Vec<Operand> = args.iter().enumerate().map(|(i, a)| {
-            let mut val = self.lower_expr(a);
-            let arg_ty = self.get_expr_type(a);
+        let arg_vals: Vec<Operand> = args
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let mut val = self.lower_expr(a);
+                let arg_ty = self.get_expr_type(a);
 
-            // Convert complex arguments to the declared parameter complex type if they differ
-            if let Some(ref pctypes) = param_ctypes {
-                if i < pctypes.len() && pctypes[i].is_complex() {
-                    let arg_ct = self.expr_ctype(a);
-                    if arg_ct.is_complex() && arg_ct != pctypes[i] {
-                        let ptr = self.operand_to_value(val);
-                        val = self.complex_to_complex(ptr, &arg_ct, &pctypes[i]);
-                    } else if !arg_ct.is_complex() {
-                        val = self.real_to_complex(val, &arg_ct, &pctypes[i]);
-                    }
-                } else if i < pctypes.len() && !pctypes[i].is_complex() {
-                    let arg_ct = self.expr_ctype(a);
-                    if arg_ct.is_complex() {
-                        let ptr = self.operand_to_value(val);
-                        // Check if target param is _Bool: use both real and imag per C11 6.3.1.2
-                        let is_param_bool = param_bool_flags.as_ref()
-                            .and_then(|bf| bf.get(i).copied())
-                            .unwrap_or(false);
-                        if is_param_bool {
-                            let cast_val = self.lower_complex_to_bool(ptr, &arg_ct);
-                            arg_types.push(IrType::I8);
+                // Convert complex arguments to the declared parameter complex type if they differ
+                if let Some(ref pctypes) = param_ctypes {
+                    if i < pctypes.len() && pctypes[i].is_complex() {
+                        let arg_ct = self.expr_ctype(a);
+                        if arg_ct.is_complex() && arg_ct != pctypes[i] {
+                            let ptr = self.operand_to_value(val);
+                            val = self.complex_to_complex(ptr, &arg_ct, &pctypes[i]);
+                        } else if !arg_ct.is_complex() {
+                            val = self.real_to_complex(val, &arg_ct, &pctypes[i]);
+                        }
+                    } else if i < pctypes.len() && !pctypes[i].is_complex() {
+                        let arg_ct = self.expr_ctype(a);
+                        if arg_ct.is_complex() {
+                            let ptr = self.operand_to_value(val);
+                            // Check if target param is _Bool: use both real and imag per C11 6.3.1.2
+                            let is_param_bool = param_bool_flags
+                                .as_ref()
+                                .and_then(|bf| bf.get(i).copied())
+                                .unwrap_or(false);
+                            if is_param_bool {
+                                let cast_val = self.lower_complex_to_bool(ptr, &arg_ct);
+                                arg_types.push(IrType::I8);
+                                complex_converted_to_scalar[i] = true;
+                                return cast_val;
+                            }
+                            let real_part = self.load_complex_real(ptr, &arg_ct);
+                            let comp_ir_ty = Self::complex_component_ir_type(&arg_ct);
+                            let param_ty = param_types
+                                .as_ref()
+                                .and_then(|pt| pt.get(i).copied())
+                                .unwrap_or(comp_ir_ty);
+                            let cast_val = self.emit_implicit_cast(real_part, comp_ir_ty, param_ty);
+                            arg_types.push(param_ty);
                             complex_converted_to_scalar[i] = true;
                             return cast_val;
                         }
-                        let real_part = self.load_complex_real(ptr, &arg_ct);
-                        let comp_ir_ty = Self::complex_component_ir_type(&arg_ct);
-                        let param_ty = param_types.as_ref()
-                            .and_then(|pt| pt.get(i).copied())
-                            .unwrap_or(comp_ir_ty);
-                        let cast_val = self.emit_implicit_cast(real_part, comp_ir_ty, param_ty);
+                    }
+                }
+
+                // Spill packed struct data to a temporary alloca so that the call
+                // argument is a pointer (address) rather than raw data.  This is
+                // needed for any expression that produces packed struct data:
+                // direct function calls, statement expressions wrapping calls,
+                // ternaries, comma expressions, etc.
+                {
+                    let is_struct_ret = matches!(
+                        self.get_expr_ctype(a),
+                        Some(CType::Struct(_)) | Some(CType::Union(_))
+                    );
+                    if is_struct_ret && self.expr_produces_packed_struct_data(a) {
+                        let struct_size = self.struct_value_size(a).unwrap_or(8);
+                        let alloc_size = if struct_size > 0 { struct_size } else { 8 };
+                        let alloca = self.fresh_value();
+                        let store_ty = Self::packed_store_type(alloc_size);
+                        self.emit(Instruction::Alloca {
+                            dest: alloca,
+                            size: alloc_size,
+                            ty: store_ty,
+                            align: 0,
+                            volatile: false,
+                        });
+                        self.emit(Instruction::Store {
+                            val,
+                            ptr: alloca,
+                            ty: store_ty,
+                            seg_override: AddressSpace::Default,
+                        });
+                        val = Operand::Value(alloca);
+                    }
+                }
+
+                let is_bool_param = param_bool_flags
+                    .as_ref()
+                    .is_some_and(|flags| i < flags.len() && flags[i]);
+
+                if let Some(ref ptypes) = param_types {
+                    if i < ptypes.len() {
+                        let param_ty = ptypes[i];
                         arg_types.push(param_ty);
-                        complex_converted_to_scalar[i] = true;
+                        if is_bool_param {
+                            // For _Bool params, normalize at source type before truncation.
+                            return self.emit_bool_normalize_typed(val, arg_ty);
+                        }
+                        let cast_val = self.emit_implicit_cast(val, arg_ty, param_ty);
                         return cast_val;
                     }
                 }
-            }
-
-            // Spill packed struct data to a temporary alloca so that the call
-            // argument is a pointer (address) rather than raw data.  This is
-            // needed for any expression that produces packed struct data:
-            // direct function calls, statement expressions wrapping calls,
-            // ternaries, comma expressions, etc.
-            {
-                let is_struct_ret = matches!(
-                    self.get_expr_ctype(a),
-                    Some(CType::Struct(_)) | Some(CType::Union(_))
-                );
-                if is_struct_ret && self.expr_produces_packed_struct_data(a) {
-                    let struct_size = self.struct_value_size(a).unwrap_or(8);
-                    let alloc_size = if struct_size > 0 { struct_size } else { 8 };
-                    let alloca = self.fresh_value();
-                    let store_ty = Self::packed_store_type(alloc_size);
-                    self.emit(Instruction::Alloca { dest: alloca, size: alloc_size, ty: store_ty, align: 0, volatile: false });
-                    self.emit(Instruction::Store { val, ptr: alloca, ty: store_ty , seg_override: AddressSpace::Default });
-                    val = Operand::Value(alloca);
-                }
-            }
-
-            let is_bool_param = param_bool_flags.as_ref()
-                .is_some_and(|flags| i < flags.len() && flags[i]);
-
-            if let Some(ref ptypes) = param_types {
-                if i < ptypes.len() {
-                    let param_ty = ptypes[i];
-                    arg_types.push(param_ty);
-                    if is_bool_param {
-                        // For _Bool params, normalize at source type before truncation.
-                        return self.emit_bool_normalize_typed(val, arg_ty);
+                // Default argument promotions (C11 6.5.2.2p6): for variadic args,
+                // args beyond known params, or all args for unprototyped functions:
+                // - float -> double
+                // - char/short (signed or unsigned) -> int
+                let needs_promotion = pre_call_variadic || param_types.is_some() || is_unprototyped;
+                if needs_promotion {
+                    if arg_ty == IrType::F32 {
+                        arg_types.push(IrType::F64);
+                        return self.emit_implicit_cast(val, IrType::F32, IrType::F64);
                     }
-                    let cast_val = self.emit_implicit_cast(val, arg_ty, param_ty);
-                    return cast_val;
+                    if matches!(arg_ty, IrType::I8 | IrType::U8 | IrType::I16 | IrType::U16) {
+                        arg_types.push(IrType::I32);
+                        return self.emit_implicit_cast(val, arg_ty, IrType::I32);
+                    }
                 }
-            }
-            // Default argument promotions (C11 6.5.2.2p6): for variadic args,
-            // args beyond known params, or all args for unprototyped functions:
-            // - float -> double
-            // - char/short (signed or unsigned) -> int
-            let needs_promotion = pre_call_variadic || param_types.is_some() || is_unprototyped;
-            if needs_promotion {
-                if arg_ty == IrType::F32 {
-                    arg_types.push(IrType::F64);
-                    return self.emit_implicit_cast(val, IrType::F32, IrType::F64);
-                }
-                if matches!(arg_ty, IrType::I8 | IrType::U8 | IrType::I16 | IrType::U16) {
-                    arg_types.push(IrType::I32);
-                    return self.emit_implicit_cast(val, arg_ty, IrType::I32);
-                }
-            }
-            arg_types.push(arg_ty);
-            val
-        }).collect();
+                arg_types.push(arg_ty);
+                val
+            })
+            .collect();
 
         // Build struct_arg_sizes: for each arg, check if it's a struct/union by value
-        let func_name = if let Expr::Identifier(name, _) = func { Some(name.as_str()) } else { None };
-        let struct_arg_sizes: Vec<Option<usize>> = if let Some(ref sizes) = func_name.and_then(|n| self.func_meta.sigs.get(n).map(|s| s.param_struct_sizes.clone())) {
+        let func_name = if let Expr::Identifier(name, _) = func {
+            Some(name.as_str())
+        } else {
+            None
+        };
+        let struct_arg_sizes: Vec<Option<usize>> = if let Some(ref sizes) =
+            func_name.and_then(|n| {
+                self.func_meta
+                    .sigs
+                    .get(n)
+                    .map(|s| s.param_struct_sizes.clone())
+            }) {
             // Use pre-registered struct sizes from function metadata.
             // For variadic _Complex long double args beyond fixed params, infer size
             // (param_struct_sizes only covers declared parameters).
             // Also override None entries for vector types, since the first-pass
             // registration may not have resolved vector typedefs yet.
             let decomposes_cld = self.decomposes_complex_long_double();
-            args.iter().enumerate().map(|(i, a)| {
-                // If Stage A already converted this complex argument to a scalar
-                // (e.g., complex-to-bool or complex-to-real), the value is no
-                // longer a struct-like type and must not get a struct_arg_size.
-                if complex_converted_to_scalar.get(i).copied().unwrap_or(false) {
-                    return None;
-                }
-                let registered = if i < sizes.len() { sizes[i] } else { None };
-                if registered.is_some() {
-                    return registered;
-                }
-                // Fall back to expression-based inference for unregistered types
-                let ctype = self.get_expr_ctype(a);
-                let decomposes_cd = self.decomposes_complex_double();
-                let decomposes_cf = self.decomposes_complex_float();
-                match ctype {
-                    Some(CType::Struct(_)) | Some(CType::Union(_)) => {
-                        self.struct_value_size(a)
+            args.iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    // If Stage A already converted this complex argument to a scalar
+                    // (e.g., complex-to-bool or complex-to-real), the value is no
+                    // longer a struct-like type and must not get a struct_arg_size.
+                    if complex_converted_to_scalar.get(i).copied().unwrap_or(false) {
+                        return None;
                     }
-                    Some(CType::Vector(_, total_size)) => Some(total_size),
-                    Some(CType::ComplexLongDouble) if !decomposes_cld => {
-                        Some(CType::ComplexLongDouble.size())
+                    let registered = if i < sizes.len() { sizes[i] } else { None };
+                    if registered.is_some() {
+                        return registered;
                     }
-                    // i686: ComplexDouble (16 bytes) and ComplexFloat (8 bytes) are
-                    // passed as structs on the stack when not decomposed.
-                    Some(CType::ComplexDouble) if !decomposes_cd => {
-                        Some(CType::ComplexDouble.size())
+                    // Fall back to expression-based inference for unregistered types
+                    let ctype = self.get_expr_ctype(a);
+                    let decomposes_cd = self.decomposes_complex_double();
+                    let decomposes_cf = self.decomposes_complex_float();
+                    match ctype {
+                        Some(CType::Struct(_)) | Some(CType::Union(_)) => self.struct_value_size(a),
+                        Some(CType::Vector(_, total_size)) => Some(total_size),
+                        Some(CType::ComplexLongDouble) if !decomposes_cld => {
+                            Some(CType::ComplexLongDouble.size())
+                        }
+                        // i686: ComplexDouble (16 bytes) and ComplexFloat (8 bytes) are
+                        // passed as structs on the stack when not decomposed.
+                        Some(CType::ComplexDouble) if !decomposes_cd => {
+                            Some(CType::ComplexDouble.size())
+                        }
+                        Some(CType::ComplexFloat) if !decomposes_cf => {
+                            Some(CType::ComplexFloat.size())
+                        }
+                        _ => None,
                     }
-                    Some(CType::ComplexFloat) if !decomposes_cf => {
-                        Some(CType::ComplexFloat.size())
-                    }
-                    _ => None,
-                }
-            }).collect()
+                })
+                .collect()
         } else {
             // Infer from argument expressions
             let decomposes_cld = self.decomposes_complex_long_double();
             let decomposes_cd = self.decomposes_complex_double();
             let decomposes_cf = self.decomposes_complex_float();
-            args.iter().enumerate().map(|(i, a)| {
-                // If Stage A already converted this complex argument to a scalar
-                // (e.g., complex-to-bool or complex-to-real), the value is no
-                // longer a struct-like type and must not get a struct_arg_size.
-                if complex_converted_to_scalar.get(i).copied().unwrap_or(false) {
-                    return None;
-                }
-                let ctype = self.get_expr_ctype(a);
-                match ctype {
-                    Some(CType::Struct(_)) | Some(CType::Union(_)) => {
-                        self.struct_value_size(a)
+            args.iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    // If Stage A already converted this complex argument to a scalar
+                    // (e.g., complex-to-bool or complex-to-real), the value is no
+                    // longer a struct-like type and must not get a struct_arg_size.
+                    if complex_converted_to_scalar.get(i).copied().unwrap_or(false) {
+                        return None;
                     }
-                    Some(CType::Vector(_, total_size)) => {
-                        Some(total_size) // Vector types are passed by value like structs
+                    let ctype = self.get_expr_ctype(a);
+                    match ctype {
+                        Some(CType::Struct(_)) | Some(CType::Union(_)) => self.struct_value_size(a),
+                        Some(CType::Vector(_, total_size)) => {
+                            Some(total_size) // Vector types are passed by value like structs
+                        }
+                        Some(CType::ComplexLongDouble) if !decomposes_cld => {
+                            Some(CType::ComplexLongDouble.size())
+                        }
+                        // i686: ComplexDouble and ComplexFloat passed as structs on stack
+                        Some(CType::ComplexDouble) if !decomposes_cd => {
+                            Some(CType::ComplexDouble.size())
+                        }
+                        Some(CType::ComplexFloat) if !decomposes_cf => {
+                            Some(CType::ComplexFloat.size())
+                        }
+                        _ => None,
                     }
-                    Some(CType::ComplexLongDouble) if !decomposes_cld => {
-                        Some(CType::ComplexLongDouble.size())
-                    }
-                    // i686: ComplexDouble and ComplexFloat passed as structs on stack
-                    Some(CType::ComplexDouble) if !decomposes_cd => {
-                        Some(CType::ComplexDouble.size())
-                    }
-                    Some(CType::ComplexFloat) if !decomposes_cf => {
-                        Some(CType::ComplexFloat.size())
-                    }
-                    _ => None,
-                }
-            }).collect()
+                })
+                .collect()
         };
 
         // Build struct_arg_aligns: for each struct arg, record its alignment.
         // This is used by RISC-V to even-align register pairs for 2×XLEN-aligned structs
         // (e.g., struct containing long double with 16-byte alignment).
-        let struct_arg_aligns: Vec<Option<usize>> = args.iter().enumerate().map(|(i, a)| {
-            struct_arg_sizes.get(i).copied().flatten()?;
-            let ctype = self.get_expr_ctype(a);
-            match ctype {
-                Some(ref ct @ CType::Struct(_)) | Some(ref ct @ CType::Union(_)) => {
-                    self.get_struct_layout_for_ctype(ct).map(|layout| layout.align)
+        let struct_arg_aligns: Vec<Option<usize>> = args
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                struct_arg_sizes.get(i).copied().flatten()?;
+                let ctype = self.get_expr_ctype(a);
+                match ctype {
+                    Some(ref ct @ CType::Struct(_)) | Some(ref ct @ CType::Union(_)) => self
+                        .get_struct_layout_for_ctype(ct)
+                        .map(|layout| layout.align),
+                    _ => None,
                 }
-                _ => None,
-            }
-        }).collect();
+            })
+            .collect();
 
         // Build struct_arg_classes: propagate per-eightbyte SysV ABI classification from FuncSig.
         // For variadic args beyond fixed params, infer classification from expression CType
         // so that struct fields are correctly split between GP and SSE registers.
-        let struct_arg_classes: Vec<Vec<crate::common::types::EightbyteClass>> = if let Some(ref classes) = func_name.and_then(|n| self.func_meta.sigs.get(n).map(|s| s.param_struct_classes.clone())) {
-            args.iter().enumerate().map(|(i, a)| {
-                if i < classes.len() && !classes[i].is_empty() {
-                    classes[i].clone()
-                } else {
-                    // Infer eightbyte classification from expression CType for variadic struct args
-                    self.infer_struct_eightbyte_classes(a)
-                }
-            }).collect()
-        } else {
-            args.iter().map(|a| self.infer_struct_eightbyte_classes(a)).collect()
-        };
+        let struct_arg_classes: Vec<Vec<crate::common::types::EightbyteClass>> =
+            if let Some(ref classes) = func_name.and_then(|n| {
+                self.func_meta
+                    .sigs
+                    .get(n)
+                    .map(|s| s.param_struct_classes.clone())
+            }) {
+                args.iter()
+                    .enumerate()
+                    .map(|(i, a)| {
+                        if i < classes.len() && !classes[i].is_empty() {
+                            classes[i].clone()
+                        } else {
+                            // Infer eightbyte classification from expression CType for variadic struct args
+                            self.infer_struct_eightbyte_classes(a)
+                        }
+                    })
+                    .collect()
+            } else {
+                args.iter()
+                    .map(|a| self.infer_struct_eightbyte_classes(a))
+                    .collect()
+            };
 
         // Build struct_arg_riscv_float_classes: propagate RISC-V float classification from FuncSig.
         // Variadic args beyond fixed params get None — on RISC-V LP64D, variadic
         // struct args are passed in GP registers, not FP registers.
-        let struct_arg_riscv_float_classes: Vec<Option<crate::common::types::RiscvFloatClass>> = if let Some(ref classes) = func_name.and_then(|n| self.func_meta.sigs.get(n).map(|s| s.param_riscv_float_classes.clone())) {
-            args.iter().enumerate().map(|(i, _a)| {
-                if i < classes.len() {
-                    classes[i]
-                } else {
-                    None
-                }
-            }).collect()
-        } else {
-            args.iter().map(|_a| None).collect()
-        };
+        let struct_arg_riscv_float_classes: Vec<Option<crate::common::types::RiscvFloatClass>> =
+            if let Some(ref classes) = func_name.and_then(|n| {
+                self.func_meta
+                    .sigs
+                    .get(n)
+                    .map(|s| s.param_riscv_float_classes.clone())
+            }) {
+                args.iter()
+                    .enumerate()
+                    .map(|(i, _a)| if i < classes.len() { classes[i] } else { None })
+                    .collect()
+            } else {
+                args.iter().map(|_a| None).collect()
+            };
 
-        (arg_vals, arg_types, struct_arg_sizes, struct_arg_aligns, struct_arg_classes, struct_arg_riscv_float_classes)
+        (
+            arg_vals,
+            arg_types,
+            struct_arg_sizes,
+            struct_arg_aligns,
+            struct_arg_classes,
+            struct_arg_riscv_float_classes,
+        )
     }
 
     /// Infer SysV ABI eightbyte classification for a struct argument expression.
     /// This is used for variadic struct args that don't have pre-registered classification
     /// from the function signature (since the signature only covers fixed params).
-    fn infer_struct_eightbyte_classes(&self, expr: &Expr) -> Vec<crate::common::types::EightbyteClass> {
+    fn infer_struct_eightbyte_classes(
+        &self,
+        expr: &Expr,
+    ) -> Vec<crate::common::types::EightbyteClass> {
         if let Some(ctype) = self.get_expr_ctype(expr) {
             if let Some(layout) = self.get_struct_layout_for_ctype(&ctype) {
                 return layout.classify_sysv_eightbytes(&*self.types.borrow_struct_layouts());
@@ -745,18 +1000,27 @@ impl Lowerer {
                     self.emit(Instruction::CallIndirect {
                         func_ptr: Operand::Value(func_ptr),
                         info: CallInfo {
-                            dest: Some(dest), args: arg_vals, arg_types,
-                            return_type: indirect_ret_ty, is_variadic, num_fixed_args,
-                            struct_arg_sizes, struct_arg_aligns, struct_arg_classes,
+                            dest: Some(dest),
+                            args: arg_vals,
+                            arg_types,
+                            return_type: indirect_ret_ty,
+                            is_variadic,
+                            num_fixed_args,
+                            struct_arg_sizes,
+                            struct_arg_aligns,
+                            struct_arg_classes,
                             struct_arg_riscv_float_classes,
-                            is_sret: sret_size.is_some(), is_fastcall: false,
+                            is_sret: sret_size.is_some(),
+                            is_fastcall: false,
                             ret_eightbyte_classes: call_ret_classes,
                         },
                     });
                     indirect_ret_ty
                 } else {
                     // Direct call - apply __asm__("label") linker symbol redirect if present
-                    let call_name = self.asm_label_map.get(name.as_str())
+                    let call_name = self
+                        .asm_label_map
+                        .get(name.as_str())
                         .cloned()
                         .unwrap_or_else(|| name.clone());
                     let sig = self.func_meta.sigs.get(name.as_str());
@@ -783,11 +1047,18 @@ impl Lowerer {
                     self.emit(Instruction::Call {
                         func: call_name,
                         info: CallInfo {
-                            dest: Some(dest), args: arg_vals, arg_types,
-                            return_type: ret_ty, is_variadic, num_fixed_args,
-                            struct_arg_sizes, struct_arg_aligns, struct_arg_classes,
+                            dest: Some(dest),
+                            args: arg_vals,
+                            arg_types,
+                            return_type: ret_ty,
+                            is_variadic,
+                            num_fixed_args,
+                            struct_arg_sizes,
+                            struct_arg_aligns,
+                            struct_arg_classes,
                             struct_arg_riscv_float_classes,
-                            is_sret: sret_size.is_some(), is_fastcall: callee_is_fastcall,
+                            is_sret: sret_size.is_some(),
+                            is_fastcall: callee_is_fastcall,
                             ret_eightbyte_classes: call_ret_classes,
                         },
                     });
@@ -816,11 +1087,18 @@ impl Lowerer {
                 self.emit(Instruction::CallIndirect {
                     func_ptr,
                     info: CallInfo {
-                        dest: Some(dest), args: arg_vals, arg_types,
-                        return_type: indirect_ret_ty, is_variadic: false, num_fixed_args: n,
-                        struct_arg_sizes: sas, struct_arg_aligns: saa, struct_arg_classes: sac,
+                        dest: Some(dest),
+                        args: arg_vals,
+                        arg_types,
+                        return_type: indirect_ret_ty,
+                        is_variadic: false,
+                        num_fixed_args: n,
+                        struct_arg_sizes: sas,
+                        struct_arg_aligns: saa,
+                        struct_arg_classes: sac,
                         struct_arg_riscv_float_classes: sarfc,
-                        is_sret: sret_size.is_some(), is_fastcall: false,
+                        is_sret: sret_size.is_some(),
+                        is_fastcall: false,
                         ret_eightbyte_classes: call_ret_classes,
                     },
                 });
@@ -839,8 +1117,11 @@ impl Lowerer {
                 // static_call mechanism uses this pattern and requires a direct call
                 // instruction so the call site can be patched at runtime.
                 let direct_func_name = if let Operand::Value(v) = func_ptr {
-                    let instrs = &self.func_state.as_ref()
-                        .expect("func_state must exist during function lowering").instrs;
+                    let instrs = &self
+                        .func_state
+                        .as_ref()
+                        .expect("func_state must exist during function lowering")
+                        .instrs;
                     let found = instrs.iter().rev().find_map(|inst| {
                         if let Instruction::GlobalAddr { dest, ref name } = *inst {
                             if dest == v && self.known_functions.contains(name) {
@@ -856,7 +1137,9 @@ impl Lowerer {
 
                 if let Some(call_name) = direct_func_name {
                     // Emit a direct call instead of indirect.
-                    let call_name = self.asm_label_map.get(call_name.as_str())
+                    let call_name = self
+                        .asm_label_map
+                        .get(call_name.as_str())
                         .cloned()
                         .unwrap_or(call_name);
                     let sig = self.func_meta.sigs.get(call_name.as_str());
@@ -879,11 +1162,18 @@ impl Lowerer {
                     self.emit(Instruction::Call {
                         func: call_name,
                         info: CallInfo {
-                            dest: Some(dest), args: arg_vals, arg_types,
-                            return_type: ret_ty, is_variadic, num_fixed_args,
-                            struct_arg_sizes: sas, struct_arg_aligns: saa, struct_arg_classes: sac,
+                            dest: Some(dest),
+                            args: arg_vals,
+                            arg_types,
+                            return_type: ret_ty,
+                            is_variadic,
+                            num_fixed_args,
+                            struct_arg_sizes: sas,
+                            struct_arg_aligns: saa,
+                            struct_arg_classes: sac,
                             struct_arg_riscv_float_classes: sarfc,
-                            is_sret: sret_size.is_some(), is_fastcall: callee_is_fastcall,
+                            is_sret: sret_size.is_some(),
+                            is_fastcall: callee_is_fastcall,
                             ret_eightbyte_classes: call_ret_classes,
                         },
                     });
@@ -892,11 +1182,18 @@ impl Lowerer {
                     self.emit(Instruction::CallIndirect {
                         func_ptr,
                         info: CallInfo {
-                            dest: Some(dest), args: arg_vals, arg_types,
-                            return_type: indirect_ret_ty, is_variadic, num_fixed_args,
-                            struct_arg_sizes: sas, struct_arg_aligns: saa, struct_arg_classes: sac,
+                            dest: Some(dest),
+                            args: arg_vals,
+                            arg_types,
+                            return_type: indirect_ret_ty,
+                            is_variadic,
+                            num_fixed_args,
+                            struct_arg_sizes: sas,
+                            struct_arg_aligns: saa,
+                            struct_arg_classes: sac,
                             struct_arg_riscv_float_classes: sarfc,
-                            is_sret: sret_size.is_some(), is_fastcall: false,
+                            is_sret: sret_size.is_some(),
+                            is_fastcall: false,
                             ret_eightbyte_classes: call_ret_classes,
                         },
                     });
@@ -911,7 +1208,10 @@ impl Lowerer {
         let base_addr = if let Some(info) = self.func_mut().locals.get(name).cloned() {
             if let Some(ref global_name) = info.static_global_name {
                 let addr = self.fresh_value();
-                self.emit(Instruction::GlobalAddr { dest: addr, name: global_name.clone() });
+                self.emit(Instruction::GlobalAddr {
+                    dest: addr,
+                    name: global_name.clone(),
+                });
                 addr
             } else {
                 info.alloca
@@ -919,11 +1219,19 @@ impl Lowerer {
         } else {
             // Global function pointer
             let addr = self.fresh_value();
-            self.emit(Instruction::GlobalAddr { dest: addr, name: name.to_string() });
+            self.emit(Instruction::GlobalAddr {
+                dest: addr,
+                name: name.to_string(),
+            });
             addr
         };
         let ptr_val = self.fresh_value();
-        self.emit(Instruction::Load { dest: ptr_val, ptr: base_addr, ty: IrType::Ptr , seg_override: AddressSpace::Default });
+        self.emit(Instruction::Load {
+            dest: ptr_val,
+            ptr: base_addr,
+            ty: IrType::Ptr,
+            seg_override: AddressSpace::Default,
+        });
         ptr_val
     }
 
@@ -931,9 +1239,7 @@ impl Lowerer {
     /// 128-bit return values are already correctly handled.
     pub(super) fn maybe_narrow_call_result(&mut self, dest: Value, ret_ty: IrType) -> Operand {
         let wt = crate::common::types::widened_op_type(ret_ty);
-        if ret_ty != wt && ret_ty != IrType::Ptr
-            && ret_ty != IrType::Void && ret_ty.is_integer()
-        {
+        if ret_ty != wt && ret_ty != IrType::Ptr && ret_ty != IrType::Void && ret_ty.is_integer() {
             let narrowed = self.emit_cast_val(Operand::Value(dest), wt, ret_ty);
             Operand::Value(narrowed)
         } else {
@@ -946,10 +1252,34 @@ impl Lowerer {
         if let Some(sig) = self.func_meta.sigs.get(name) {
             return sig.is_variadic;
         }
-        matches!(name, "printf" | "fprintf" | "sprintf" | "snprintf" | "scanf" | "sscanf"
-            | "fscanf" | "dprintf" | "vprintf" | "vfprintf" | "vsprintf" | "vsnprintf"
-            | "syslog" | "err" | "errx" | "warn" | "warnx" | "asprintf" | "vasprintf"
-            | "open" | "fcntl" | "ioctl" | "execl" | "execlp" | "execle")
+        matches!(
+            name,
+            "printf"
+                | "fprintf"
+                | "sprintf"
+                | "snprintf"
+                | "scanf"
+                | "sscanf"
+                | "fscanf"
+                | "dprintf"
+                | "vprintf"
+                | "vfprintf"
+                | "vsprintf"
+                | "vsnprintf"
+                | "syslog"
+                | "err"
+                | "errx"
+                | "warn"
+                | "warnx"
+                | "asprintf"
+                | "vasprintf"
+                | "open"
+                | "fcntl"
+                | "ioctl"
+                | "execl"
+                | "execlp"
+                | "execle"
+        )
     }
 
     /// Extract the return CType from a function pointer expression.
@@ -1000,21 +1330,19 @@ impl Lowerer {
     pub(super) fn extract_return_type_from_ctype(&self, ctype: &CType) -> IrType {
         let returns_cld_in_regs = self.returns_complex_long_double_in_regs();
         match ctype {
-            CType::Pointer(inner, _) => {
-                match inner.as_ref() {
-                    CType::Function(ft) => Self::func_return_ir_type(&ft.return_type, returns_cld_in_regs),
-                    CType::Pointer(ret, _) => {
-                        match ret.as_ref() {
-                            CType::Float => IrType::F32,
-                            CType::Double => IrType::F64,
-                            _ => target_int_ir_type(),
-                        }
-                    }
+            CType::Pointer(inner, _) => match inner.as_ref() {
+                CType::Function(ft) => {
+                    Self::func_return_ir_type(&ft.return_type, returns_cld_in_regs)
+                }
+                CType::Pointer(ret, _) => match ret.as_ref() {
                     CType::Float => IrType::F32,
                     CType::Double => IrType::F64,
                     _ => target_int_ir_type(),
-                }
-            }
+                },
+                CType::Float => IrType::F32,
+                CType::Double => IrType::F64,
+                _ => target_int_ir_type(),
+            },
             CType::Function(ft) => Self::func_return_ir_type(&ft.return_type, returns_cld_in_regs),
             _ => target_int_ir_type(),
         }
@@ -1031,20 +1359,32 @@ impl Lowerer {
             //   ARM/RISC-V: real part in first FP reg as F32
             //   i686: both F32 parts packed into eax:edx as I64
             CType::ComplexFloat => {
-                if is_32bit { IrType::I64 } else { IrType::F64 }
+                if is_32bit {
+                    IrType::I64
+                } else {
+                    IrType::F64
+                }
             }
             // Complex double:
             //   x86-64/ARM64/RISC-V: real part in first FP reg as F64
             //   i686: 16 bytes, uses sret (shouldn't reach here, but default to Ptr)
             CType::ComplexDouble => {
-                if is_32bit { IrType::Ptr } else { IrType::F64 }
+                if is_32bit {
+                    IrType::Ptr
+                } else {
+                    IrType::F64
+                }
             }
             // Complex long double:
             //   x86-64: returns via x87 st(0)/st(1), real part as F128
             //   i686: 24 bytes, uses sret (shouldn't reach here, but default to Ptr)
             //   Other targets: handled via sret before reaching this point
             CType::ComplexLongDouble => {
-                if is_32bit { IrType::Ptr } else { IrType::F128 }
+                if is_32bit {
+                    IrType::Ptr
+                } else {
+                    IrType::F128
+                }
             }
             // On 32-bit targets, ALL struct/union returns use sret (hidden pointer).
             // The i386 SysV ABI never returns structs in registers.
@@ -1062,15 +1402,26 @@ impl Lowerer {
     ///
     /// Returns `Some((param_types, param_ctypes, param_bool_flags))` if the
     /// callee's CType is a function pointer with known parameter types.
-    fn extract_fn_ptr_param_info(&self, func_expr: &Expr) -> Option<(Vec<IrType>, Vec<CType>, Vec<bool>, bool)> {
+    fn extract_fn_ptr_param_info(
+        &self,
+        func_expr: &Expr,
+    ) -> Option<(Vec<IrType>, Vec<CType>, Vec<bool>, bool)> {
         let ctype = self.get_expr_ctype(func_expr)?;
         let ft = ctype.get_function_type()?;
         if ft.params.is_empty() {
             return None; // Unprototyped function - no parameter info
         }
-        let param_types: Vec<IrType> = ft.params.iter().map(|(ct, _)| IrType::from_ctype(ct)).collect();
+        let param_types: Vec<IrType> = ft
+            .params
+            .iter()
+            .map(|(ct, _)| IrType::from_ctype(ct))
+            .collect();
         let param_ctypes: Vec<CType> = ft.params.iter().map(|(ct, _)| ct.clone()).collect();
-        let param_bool_flags: Vec<bool> = ft.params.iter().map(|(ct, _)| matches!(ct, CType::Bool)).collect();
+        let param_bool_flags: Vec<bool> = ft
+            .params
+            .iter()
+            .map(|(ct, _)| matches!(ct, CType::Bool))
+            .collect();
         Some((param_types, param_ctypes, param_bool_flags, ft.variadic))
     }
 }

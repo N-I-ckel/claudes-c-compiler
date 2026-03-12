@@ -79,10 +79,16 @@ pub(super) fn combined_local_pass(store: &mut LineStore, infos: &mut [LineInfo])
                     // Exception: instructions like div/idiv/mul/cqto that
                     // implicitly clobber rax through dest_reg rdx.
                     let trimmed = infos[i].trimmed(store.get(i));
-                    if trimmed.starts_with("div") || trimmed.starts_with("idiv")
-                        || trimmed.starts_with("mul") || trimmed.starts_with("imul")
-                        || trimmed == "cqto" || trimmed == "cqo" || trimmed == "cdq"
-                        || trimmed.starts_with("xchg") || trimmed.starts_with("cmpxchg") {
+                    if trimmed.starts_with("div")
+                        || trimmed.starts_with("idiv")
+                        || trimmed.starts_with("mul")
+                        || trimmed.starts_with("imul")
+                        || trimmed == "cqto"
+                        || trimmed == "cqo"
+                        || trimmed == "cdq"
+                        || trimmed.starts_with("xchg")
+                        || trimmed.starts_with("cmpxchg")
+                    {
                         rax_is_zero = false;
                     }
                     // Otherwise rax is only read, not written - keep tracking.
@@ -95,16 +101,23 @@ pub(super) fn combined_local_pass(store: &mut LineStore, infos: &mut [LineInfo])
             LineKind::LoadRbp { .. } => {
                 // Load to non-rax register, rax_is_zero unchanged.
             }
-            LineKind::Label | LineKind::Jmp | LineKind::JmpIndirect
-            | LineKind::CondJmp | LineKind::Ret | LineKind::Call => {
+            LineKind::Label
+            | LineKind::Jmp
+            | LineKind::JmpIndirect
+            | LineKind::CondJmp
+            | LineKind::Ret
+            | LineKind::Call => {
                 // Control flow or label - invalidate tracking
                 rax_is_zero = false;
             }
             LineKind::Pop { reg: 0 } | LineKind::SetCC { reg: 0 } => {
                 rax_is_zero = false;
             }
-            LineKind::Pop { .. } | LineKind::SetCC { .. }
-            | LineKind::Push { .. } | LineKind::Cmp | LineKind::Directive => {
+            LineKind::Pop { .. }
+            | LineKind::SetCC { .. }
+            | LineKind::Push { .. }
+            | LineKind::Cmp
+            | LineKind::Directive => {
                 // Don't affect rax
             }
             _ => {
@@ -140,9 +153,11 @@ pub(super) fn combined_local_pass(store: &mut LineStore, infos: &mut [LineInfo])
                         let src_fam = register_family_fast(src);
                         let dst_fam = register_family_fast(dst);
                         // Both must be GP registers, different families, both register operands
-                        if is_valid_gp_reg(src_fam) && is_valid_gp_reg(dst_fam)
+                        if is_valid_gp_reg(src_fam)
+                            && is_valid_gp_reg(dst_fam)
                             && src_fam != dst_fam
-                            && src.starts_with('%') && dst.starts_with('%')
+                            && src.starts_with('%')
+                            && dst.starts_with('%')
                         {
                             // Find the next non-NOP, non-StoreRbp instruction.
                             // Limit search to 8 lines to avoid pathological scanning.
@@ -268,9 +283,19 @@ pub(super) fn combined_local_pass(store: &mut LineStore, infos: &mut [LineInfo])
         }
 
         // --- Pattern: adjacent store/load at same %rbp offset ---
-        if let LineKind::StoreRbp { reg: sr, offset: so, size: ss } = infos[i].kind {
+        if let LineKind::StoreRbp {
+            reg: sr,
+            offset: so,
+            size: ss,
+        } = infos[i].kind
+        {
             if i + 1 < len && !infos[i + 1].is_nop() {
-                if let LineKind::LoadRbp { reg: lr, offset: lo, size: ls } = infos[i + 1].kind {
+                if let LineKind::LoadRbp {
+                    reg: lr,
+                    offset: lo,
+                    size: ls,
+                } = infos[i + 1].kind
+                {
                     // Different register cases are handled by global_store_forwarding
                     if so == lo && ss == ls && sr == lr && sr != REG_NONE {
                         // Same register: load is redundant
@@ -304,19 +329,40 @@ pub(super) fn combined_local_pass(store: &mut LineStore, infos: &mut [LineInfo])
             let prev_ext = infos[i].ext_kind;
 
             let is_redundant_ext = match next_ext {
-                ExtKind::MovzbqAlRax => matches!(prev_ext, ExtKind::ProducerMovzbqToRax | ExtKind::MovzbqAlRax),
-                ExtKind::MovzwqAxRax => matches!(prev_ext, ExtKind::ProducerMovzwqToRax | ExtKind::MovzwqAxRax),
-                ExtKind::MovsbqAlRax => matches!(prev_ext, ExtKind::ProducerMovsbqToRax | ExtKind::MovsbqAlRax),
-                ExtKind::MovslqEaxRax => matches!(prev_ext, ExtKind::ProducerMovslqToRax | ExtKind::MovslqEaxRax),
-                ExtKind::Cltq => matches!(prev_ext,
-                    ExtKind::ProducerMovslqToRax | ExtKind::ProducerMovqConstRax |
-                    ExtKind::MovslqEaxRax | ExtKind::Cltq),
-                ExtKind::MovlEaxEax => matches!(prev_ext,
-                    ExtKind::ProducerArith32 | ExtKind::ProducerMovlToEax |
-                    ExtKind::ProducerMovzbToEax | ExtKind::ProducerMovzbqToRax |
-                    ExtKind::ProducerMovzwToEax | ExtKind::ProducerMovzwqToRax |
-                    ExtKind::ProducerDiv32 |
-                    ExtKind::MovlEaxEax),
+                ExtKind::MovzbqAlRax => matches!(
+                    prev_ext,
+                    ExtKind::ProducerMovzbqToRax | ExtKind::MovzbqAlRax
+                ),
+                ExtKind::MovzwqAxRax => matches!(
+                    prev_ext,
+                    ExtKind::ProducerMovzwqToRax | ExtKind::MovzwqAxRax
+                ),
+                ExtKind::MovsbqAlRax => matches!(
+                    prev_ext,
+                    ExtKind::ProducerMovsbqToRax | ExtKind::MovsbqAlRax
+                ),
+                ExtKind::MovslqEaxRax => matches!(
+                    prev_ext,
+                    ExtKind::ProducerMovslqToRax | ExtKind::MovslqEaxRax
+                ),
+                ExtKind::Cltq => matches!(
+                    prev_ext,
+                    ExtKind::ProducerMovslqToRax
+                        | ExtKind::ProducerMovqConstRax
+                        | ExtKind::MovslqEaxRax
+                        | ExtKind::Cltq
+                ),
+                ExtKind::MovlEaxEax => matches!(
+                    prev_ext,
+                    ExtKind::ProducerArith32
+                        | ExtKind::ProducerMovlToEax
+                        | ExtKind::ProducerMovzbToEax
+                        | ExtKind::ProducerMovzbqToRax
+                        | ExtKind::ProducerMovzwToEax
+                        | ExtKind::ProducerMovzwqToRax
+                        | ExtKind::ProducerDiv32
+                        | ExtKind::MovlEaxEax
+                ),
                 _ => false,
             };
 
@@ -343,12 +389,16 @@ pub(super) fn combined_local_pass(store: &mut LineStore, infos: &mut [LineInfo])
                     let mut k = i - 1;
                     while k >= scan_limit {
                         if infos[k].is_nop() {
-                            if k == 0 { break; }
+                            if k == 0 {
+                                break;
+                            }
                             k -= 1;
                             continue;
                         }
                         if matches!(infos[k].kind, LineKind::StoreRbp { .. }) {
-                            if k == 0 { break; }
+                            if k == 0 {
+                                break;
+                            }
                             k -= 1;
                             continue;
                         }
@@ -358,10 +408,13 @@ pub(super) fn combined_local_pass(store: &mut LineStore, infos: &mut [LineInfo])
                         }
                         // Check if this instruction is a sign-extension producer for rax
                         let k_ext = infos[k].ext_kind;
-                        if matches!(k_ext,
-                            ExtKind::ProducerMovslqToRax | ExtKind::ProducerMovqConstRax |
-                            ExtKind::MovslqEaxRax | ExtKind::Cltq)
-                        {
+                        if matches!(
+                            k_ext,
+                            ExtKind::ProducerMovslqToRax
+                                | ExtKind::ProducerMovqConstRax
+                                | ExtKind::MovslqEaxRax
+                                | ExtKind::Cltq
+                        ) {
                             found_producer = true;
                             break;
                         }
@@ -374,7 +427,9 @@ pub(super) fn combined_local_pass(store: &mut LineStore, infos: &mut [LineInfo])
                         if writes_rax {
                             break;
                         }
-                        if k == 0 { break; }
+                        if k == 0 {
+                            break;
+                        }
                         k -= 1;
                     }
                     if found_producer {
@@ -431,10 +486,15 @@ pub(super) fn fuse_movq_ext_truncation(store: &mut LineStore, infos: &mut [LineI
 
         // Check if next instruction is a fusable extension/truncation on %rax
         let next_ext = infos[j].ext_kind;
-        let fusable = matches!(next_ext,
-            ExtKind::MovlEaxEax | ExtKind::MovslqEaxRax | ExtKind::Cltq |
-            ExtKind::MovzbqAlRax | ExtKind::MovzwqAxRax |
-            ExtKind::MovsbqAlRax);
+        let fusable = matches!(
+            next_ext,
+            ExtKind::MovlEaxEax
+                | ExtKind::MovslqEaxRax
+                | ExtKind::Cltq
+                | ExtKind::MovzbqAlRax
+                | ExtKind::MovzwqAxRax
+                | ExtKind::MovsbqAlRax
+        );
         if !fusable {
             i += 1;
             continue;
@@ -446,9 +506,17 @@ pub(super) fn fuse_movq_ext_truncation(store: &mut LineStore, infos: &mut [LineI
             if let Some((src, _dst)) = rest.split_once(',') {
                 let src = src.trim();
                 let fam = register_family_fast(src);
-                if fam != REG_NONE && fam != 0 { fam } else { REG_NONE }
-            } else { REG_NONE }
-        } else { REG_NONE };
+                if fam != REG_NONE && fam != 0 {
+                    fam
+                } else {
+                    REG_NONE
+                }
+            } else {
+                REG_NONE
+            }
+        } else {
+            REG_NONE
+        };
 
         if src_family == REG_NONE {
             i += 1;

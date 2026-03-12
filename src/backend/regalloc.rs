@@ -23,15 +23,13 @@
 //!    only a few caller-saved registers. The one-time prologue/epilogue save/restore
 //!    cost is amortized over many loop iterations.
 
+use super::liveness::{
+    compute_live_intervals, for_each_operand_in_instruction, for_each_operand_in_terminator,
+    LiveInterval, LivenessResult,
+};
 use crate::common::fx_hash::{FxHashMap, FxHashSet};
 use crate::common::types::IrType;
-use crate::ir::reexports::{
-    Instruction,
-    IrConst,
-    IrFunction,
-    Operand,
-};
-use super::liveness::{LiveInterval, LivenessResult, compute_live_intervals, for_each_operand_in_instruction, for_each_operand_in_terminator};
+use crate::ir::reexports::{Instruction, IrConst, IrFunction, Operand};
 
 /// A physical register assignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,10 +75,7 @@ pub struct RegAllocConfig {
 /// - Alloca values (they represent stack addresses)
 /// - i128/float values (they need special register paths)
 /// - Values used only once right after definition (no benefit from register)
-pub fn allocate_registers(
-    func: &IrFunction,
-    config: &RegAllocConfig,
-) -> RegAllocResult {
+pub fn allocate_registers(func: &IrFunction, config: &RegAllocConfig) -> RegAllocResult {
     if config.available_regs.is_empty() && config.caller_saved_regs.is_empty() {
         return RegAllocResult {
             assignments: FxHashMap::default(),
@@ -117,7 +112,9 @@ pub fn allocate_registers(
     let mut use_count: FxHashMap<u32, u64> = FxHashMap::default();
 
     // Precompute per-block loop weight: 10^depth, capped to avoid overflow.
-    let block_loop_weight: Vec<u64> = liveness.block_loop_depth.iter()
+    let block_loop_weight: Vec<u64> = liveness
+        .block_loop_depth
+        .iter()
         .map(|&d| {
             match d {
                 0 => 1,
@@ -134,7 +131,8 @@ pub fn allocate_registers(
 
     // Helper closure to check if a type is unsuitable for GPR allocation
     let is_non_gpr_type = |ty: &IrType| -> bool {
-        ty.is_float() || ty.is_long_double()
+        ty.is_float()
+            || ty.is_long_double()
             || matches!(ty, IrType::I128 | IrType::U128)
             || (is_32bit && matches!(ty, IrType::I64 | IrType::U64))
     };
@@ -157,8 +155,7 @@ pub fn allocate_registers(
             // standard accumulator path (store_rax_to on x86, store_t0_to on RISC-V).
             // Exclude float and i128 types since they use different register paths.
             match inst {
-                Instruction::BinOp { dest, ty, .. }
-                | Instruction::UnaryOp { dest, ty, .. } => {
+                Instruction::BinOp { dest, ty, .. } | Instruction::UnaryOp { dest, ty, .. } => {
                     if !is_non_gpr_type(ty) {
                         eligible.insert(dest.0);
                     }
@@ -166,7 +163,12 @@ pub fn allocate_registers(
                 Instruction::Cmp { dest, .. } => {
                     eligible.insert(dest.0);
                 }
-                Instruction::Cast { dest, to_ty, from_ty, .. } => {
+                Instruction::Cast {
+                    dest,
+                    to_ty,
+                    from_ty,
+                    ..
+                } => {
                     if !is_non_gpr_type(to_ty) && !is_non_gpr_type(from_ty) {
                         eligible.insert(dest.0);
                     }
@@ -193,8 +195,7 @@ pub fn allocate_registers(
                 // uses store_rax_to/store_t0_to — both of which are register-aware
                 // and will emit a reg-to-reg move (e.g., movq %rax, %rbx) instead of
                 // a stack spill.
-                Instruction::Call { info, .. }
-                | Instruction::CallIndirect { info, .. } => {
+                Instruction::Call { info, .. } | Instruction::CallIndirect { info, .. } => {
                     if let Some(dest) = info.dest {
                         if !is_non_gpr_type(&info.return_type) {
                             eligible.insert(dest.0);
@@ -247,7 +248,12 @@ pub fn allocate_registers(
 
     // Phase 1: Callee-saved registers for call-spanning values.
     let candidates = build_sorted_candidates(
-        &liveness, &eligible, &FxHashMap::default(), call_points, &use_count, Some(true),
+        &liveness,
+        &eligible,
+        &FxHashMap::default(),
+        call_points,
+        &use_count,
+        Some(true),
     );
 
     let num_regs = config.available_regs.len();
@@ -256,7 +262,12 @@ pub fn allocate_registers(
     let mut used_regs_set: FxHashSet<u8> = FxHashSet::default();
 
     for interval in &candidates {
-        if let Some(reg_idx) = find_best_callee_reg(&reg_free_until, interval.start, &config.available_regs, &used_regs_set) {
+        if let Some(reg_idx) = find_best_callee_reg(
+            &reg_free_until,
+            interval.start,
+            &config.available_regs,
+            &used_regs_set,
+        ) {
             reg_free_until[reg_idx] = interval.end + 1;
             assignments.insert(interval.value_id, config.available_regs[reg_idx]);
             used_regs_set.insert(config.available_regs[reg_idx].0);
@@ -269,7 +280,12 @@ pub fn allocate_registers(
     // Phase 2: Caller-saved registers for non-call-spanning values.
     if !config.caller_saved_regs.is_empty() {
         let caller_candidates = build_sorted_candidates(
-            &liveness, &eligible, &assignments, call_points, &use_count, Some(false),
+            &liveness,
+            &eligible,
+            &assignments,
+            call_points,
+            &use_count,
+            Some(false),
         );
 
         let num_caller_regs = config.caller_saved_regs.len();
@@ -280,11 +296,10 @@ pub fn allocate_registers(
             let mut best_free_time: u32 = u32::MAX;
 
             for (i, &free_until) in caller_free_until.iter().enumerate() {
-                if free_until <= interval.start
-                    && (best.is_none() || free_until < best_free_time) {
-                        best = Some(i);
-                        best_free_time = free_until;
-                    }
+                if free_until <= interval.start && (best.is_none() || free_until < best_free_time) {
+                    best = Some(i);
+                    best_free_time = free_until;
+                }
             }
 
             if let Some(reg_idx) = best {
@@ -301,11 +316,21 @@ pub fn allocate_registers(
     // remaining callee-saved registers to these overflow values.
     {
         let spillover_candidates = build_sorted_candidates(
-            &liveness, &eligible, &assignments, call_points, &use_count, Some(false),
+            &liveness,
+            &eligible,
+            &assignments,
+            call_points,
+            &use_count,
+            Some(false),
         );
 
         for interval in &spillover_candidates {
-            if let Some(reg_idx) = find_best_callee_reg(&reg_free_until, interval.start, &config.available_regs, &used_regs_set) {
+            if let Some(reg_idx) = find_best_callee_reg(
+                &reg_free_until,
+                interval.start,
+                &config.available_regs,
+                &used_regs_set,
+            ) {
                 reg_free_until[reg_idx] = interval.end + 1;
                 assignments.insert(interval.value_id, config.available_regs[reg_idx]);
                 used_regs_set.insert(config.available_regs[reg_idx].0);
@@ -328,7 +353,8 @@ pub fn allocate_registers(
 /// values must also be excluded via fixpoint propagation.
 fn collect_non_gpr_values(func: &IrFunction, is_32bit: bool) -> FxHashSet<u32> {
     let is_non_gpr_type = |ty: &IrType| -> bool {
-        ty.is_float() || ty.is_long_double()
+        ty.is_float()
+            || ty.is_long_double()
             || matches!(ty, IrType::I128 | IrType::U128)
             || (is_32bit && matches!(ty, IrType::I64 | IrType::U64))
     };
@@ -339,13 +365,17 @@ fn collect_non_gpr_values(func: &IrFunction, is_32bit: bool) -> FxHashSet<u32> {
     for block in &func.blocks {
         for inst in &block.instructions {
             match inst {
-                Instruction::BinOp { dest, ty, .. }
-                | Instruction::UnaryOp { dest, ty, .. } => {
+                Instruction::BinOp { dest, ty, .. } | Instruction::UnaryOp { dest, ty, .. } => {
                     if is_non_gpr_type(ty) {
                         non_gpr_values.insert(dest.0);
                     }
                 }
-                Instruction::Cast { dest, to_ty, from_ty, .. } => {
+                Instruction::Cast {
+                    dest,
+                    to_ty,
+                    from_ty,
+                    ..
+                } => {
                     if is_non_gpr_type(to_ty) || is_non_gpr_type(from_ty) {
                         non_gpr_values.insert(dest.0);
                     }
@@ -355,8 +385,7 @@ fn collect_non_gpr_values(func: &IrFunction, is_32bit: bool) -> FxHashSet<u32> {
                         non_gpr_values.insert(dest.0);
                     }
                 }
-                Instruction::Call { info, .. }
-                | Instruction::CallIndirect { info, .. } => {
+                Instruction::Call { info, .. } | Instruction::CallIndirect { info, .. } => {
                     if let Some(dest) = info.dest {
                         if is_non_gpr_type(&info.return_type) {
                             non_gpr_values.insert(dest.0);
@@ -393,7 +422,8 @@ fn collect_non_gpr_values(func: &IrFunction, is_32bit: bool) -> FxHashSet<u32> {
                     }
                     let src_is_non_gpr = match src {
                         Operand::Value(v) => non_gpr_values.contains(&v.0),
-                        Operand::Const(IrConst::F32(_)) | Operand::Const(IrConst::F64(_))
+                        Operand::Const(IrConst::F32(_))
+                        | Operand::Const(IrConst::F64(_))
                         | Operand::Const(IrConst::LongDouble(..))
                         | Operand::Const(IrConst::I128(_)) => true,
                         Operand::Const(IrConst::I64(_)) if is_32bit => true,
@@ -418,11 +448,18 @@ fn collect_non_gpr_values(func: &IrFunction, is_32bit: bool) -> FxHashSet<u32> {
 /// whose codegen paths use resolve_slot_addr() directly (not register-aware).
 /// This includes CallIndirect func pointers, Memcpy pointers, va_arg pointers,
 /// atomic pointers, StackRestore, and InlineAsm operands.
-fn remove_ineligible_operands(func: &IrFunction, eligible: &mut FxHashSet<u32>, config: &RegAllocConfig) {
+fn remove_ineligible_operands(
+    func: &IrFunction,
+    eligible: &mut FxHashSet<u32>,
+    config: &RegAllocConfig,
+) {
     for block in &func.blocks {
         for inst in &block.instructions {
             match inst {
-                Instruction::CallIndirect { func_ptr: Operand::Value(v), .. } => {
+                Instruction::CallIndirect {
+                    func_ptr: Operand::Value(v),
+                    ..
+                } => {
                     eligible.remove(&v.0);
                 }
                 Instruction::Memcpy { dest, src, .. } => {
@@ -442,26 +479,44 @@ fn remove_ineligible_operands(func: &IrFunction, eligible: &mut FxHashSet<u32>, 
                     eligible.remove(&dest_ptr.0);
                     eligible.remove(&src_ptr.0);
                 }
-                Instruction::VaArgStruct { dest_ptr, va_list_ptr, .. } => {
+                Instruction::VaArgStruct {
+                    dest_ptr,
+                    va_list_ptr,
+                    ..
+                } => {
                     eligible.remove(&dest_ptr.0);
                     eligible.remove(&va_list_ptr.0);
                 }
-                Instruction::AtomicRmw { ptr: Operand::Value(v), .. } => {
+                Instruction::AtomicRmw {
+                    ptr: Operand::Value(v),
+                    ..
+                } => {
                     eligible.remove(&v.0);
                 }
-                Instruction::AtomicCmpxchg { ptr: Operand::Value(v), .. } => {
+                Instruction::AtomicCmpxchg {
+                    ptr: Operand::Value(v),
+                    ..
+                } => {
                     eligible.remove(&v.0);
                 }
-                Instruction::AtomicLoad { ptr: Operand::Value(v), .. } => {
+                Instruction::AtomicLoad {
+                    ptr: Operand::Value(v),
+                    ..
+                } => {
                     eligible.remove(&v.0);
                 }
-                Instruction::AtomicStore { ptr: Operand::Value(v), .. } => {
+                Instruction::AtomicStore {
+                    ptr: Operand::Value(v),
+                    ..
+                } => {
                     eligible.remove(&v.0);
                 }
                 Instruction::StackRestore { ptr } => {
                     eligible.remove(&ptr.0);
                 }
-                Instruction::InlineAsm { outputs, inputs, .. } => {
+                Instruction::InlineAsm {
+                    outputs, inputs, ..
+                } => {
                     if !config.allow_inline_asm_regalloc {
                         // Inline asm operands are accessed via stack slots
                         // in codegen. Exclude them from register allocation
@@ -509,7 +564,9 @@ fn build_sorted_candidates<'a>(
     use_count: &FxHashMap<u32, u64>,
     spans_call: Option<bool>,
 ) -> Vec<&'a LiveInterval> {
-    let mut candidates: Vec<&LiveInterval> = liveness.intervals.iter()
+    let mut candidates: Vec<&LiveInterval> = liveness
+        .intervals
+        .iter()
         .filter(|iv| eligible.contains(&iv.value_id))
         .filter(|iv| !already_assigned.contains_key(&iv.value_id))
         .filter(|iv| iv.end > iv.start)
@@ -523,12 +580,11 @@ fn build_sorted_candidates<'a>(
     candidates.sort_by(|a, b| {
         let score_a = use_count.get(&a.value_id).copied().unwrap_or(1);
         let score_b = use_count.get(&b.value_id).copied().unwrap_or(1);
-        score_b.cmp(&score_a)
-            .then_with(|| {
-                let len_a = (a.end - a.start) as u64;
-                let len_b = (b.end - b.start) as u64;
-                len_b.cmp(&len_a)
-            })
+        score_b.cmp(&score_a).then_with(|| {
+            let len_a = (a.end - a.start) as u64;
+            let len_b = (b.end - b.start) as u64;
+            len_b.cmp(&len_a)
+        })
     });
 
     candidates

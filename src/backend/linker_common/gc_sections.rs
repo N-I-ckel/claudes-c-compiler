@@ -4,30 +4,35 @@
 //! arrays, following relocations transitively to find all reachable sections.
 //! Returns the set of dead (unreachable) input sections to discard.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use crate::backend::elf::{
-    SHF_ALLOC, SHF_EXCLUDE,
-    SHT_NULL, SHT_STRTAB, SHT_SYMTAB, SHT_RELA, SHT_REL, SHT_GROUP,
-    STB_GLOBAL, STB_WEAK,
-    SHN_UNDEF, SHN_ABS, SHN_COMMON,
-};
 use super::Elf64Object;
+use crate::backend::elf::{
+    SHF_ALLOC, SHF_EXCLUDE, SHN_ABS, SHN_COMMON, SHN_UNDEF, SHT_GROUP, SHT_NULL, SHT_REL, SHT_RELA,
+    SHT_STRTAB, SHT_SYMTAB, STB_GLOBAL, STB_WEAK,
+};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Perform `--gc-sections`: BFS reachability from entry points, return the set
 /// of dead (unreachable) `(object_idx, section_idx)` pairs.
 ///
 /// Starting from entry-point sections (`_start`, `main`) and any init/fini
 /// arrays, follows relocations transitively to find all reachable sections.
-pub fn gc_collect_sections_elf64(
-    objects: &[Elf64Object],
-) -> HashSet<(usize, usize)> {
+pub fn gc_collect_sections_elf64(objects: &[Elf64Object]) -> HashSet<(usize, usize)> {
     // Build the set of all allocatable input sections
     let mut all_sections: HashSet<(usize, usize)> = HashSet::new();
     for (obj_idx, obj) in objects.iter().enumerate() {
         for (sec_idx, sec) in obj.sections.iter().enumerate() {
-            if sec.flags & SHF_ALLOC == 0 { continue; }
-            if matches!(sec.sh_type, SHT_NULL | SHT_STRTAB | SHT_SYMTAB | SHT_RELA | SHT_REL | SHT_GROUP) { continue; }
-            if sec.flags & SHF_EXCLUDE != 0 { continue; }
+            if sec.flags & SHF_ALLOC == 0 {
+                continue;
+            }
+            if matches!(
+                sec.sh_type,
+                SHT_NULL | SHT_STRTAB | SHT_SYMTAB | SHT_RELA | SHT_REL | SHT_GROUP
+            ) {
+                continue;
+            }
+            if sec.flags & SHF_EXCLUDE != 0 {
+                continue;
+            }
             all_sections.insert((obj_idx, sec_idx));
         }
     }
@@ -36,13 +41,21 @@ pub fn gc_collect_sections_elf64(
     let mut sym_to_section: HashMap<&str, (usize, usize)> = HashMap::new();
     for (obj_idx, obj) in objects.iter().enumerate() {
         for sym in &obj.symbols {
-            if sym.shndx == SHN_UNDEF || sym.shndx == SHN_ABS || sym.shndx == SHN_COMMON { continue; }
+            if sym.shndx == SHN_UNDEF || sym.shndx == SHN_ABS || sym.shndx == SHN_COMMON {
+                continue;
+            }
             let binding = sym.info >> 4;
-            if binding != STB_GLOBAL && binding != STB_WEAK { continue; }
-            if sym.name.is_empty() { continue; }
+            if binding != STB_GLOBAL && binding != STB_WEAK {
+                continue;
+            }
+            if sym.name.is_empty() {
+                continue;
+            }
             let sec_idx = sym.shndx as usize;
             if sec_idx < obj.sections.len() {
-                sym_to_section.entry(sym.name.as_str()).or_insert((obj_idx, sec_idx));
+                sym_to_section
+                    .entry(sym.name.as_str())
+                    .or_insert((obj_idx, sec_idx));
             }
         }
     }
@@ -51,7 +64,9 @@ pub fn gc_collect_sections_elf64(
     let mut live: HashSet<(usize, usize)> = HashSet::new();
     let mut worklist: VecDeque<(usize, usize)> = VecDeque::new();
 
-    let mark_live = |key: (usize, usize), live: &mut HashSet<(usize, usize)>, wl: &mut VecDeque<(usize, usize)>| {
+    let mark_live = |key: (usize, usize),
+                     live: &mut HashSet<(usize, usize)>,
+                     wl: &mut VecDeque<(usize, usize)>| {
         if all_sections.contains(&key) && live.insert(key) {
             wl.push_back(key);
         }
@@ -68,15 +83,23 @@ pub fn gc_collect_sections_elf64(
     // Mark init/fini array sections as live (these are called by the runtime)
     for (obj_idx, obj) in objects.iter().enumerate() {
         for (sec_idx, sec) in obj.sections.iter().enumerate() {
-            if sec.flags & SHF_ALLOC == 0 { continue; }
+            if sec.flags & SHF_ALLOC == 0 {
+                continue;
+            }
             let name = &sec.name;
             // Keep init/fini arrays and .ctors/.dtors (runtime calls these)
-            if name == ".init_array" || name.starts_with(".init_array.")
-                || name == ".fini_array" || name.starts_with(".fini_array.")
-                || name == ".ctors" || name.starts_with(".ctors.")
-                || name == ".dtors" || name.starts_with(".dtors.")
-                || name == ".preinit_array" || name.starts_with(".preinit_array.")
-                || name == ".init" || name == ".fini"
+            if name == ".init_array"
+                || name.starts_with(".init_array.")
+                || name == ".fini_array"
+                || name.starts_with(".fini_array.")
+                || name == ".ctors"
+                || name.starts_with(".ctors.")
+                || name == ".dtors"
+                || name.starts_with(".dtors.")
+                || name == ".preinit_array"
+                || name.starts_with(".preinit_array.")
+                || name == ".init"
+                || name == ".fini"
                 || name == ".note.GNU-stack"
                 || name == ".note.gnu.build-id"
             {
@@ -92,7 +115,9 @@ pub fn gc_collect_sections_elf64(
         if sec_idx < obj.relocations.len() {
             for rela in &obj.relocations[sec_idx] {
                 let sym_idx = rela.sym_idx as usize;
-                if sym_idx >= obj.symbols.len() { continue; }
+                if sym_idx >= obj.symbols.len() {
+                    continue;
+                }
                 let sym = &obj.symbols[sym_idx];
 
                 if sym.shndx != SHN_UNDEF && sym.shndx != SHN_ABS && sym.shndx != SHN_COMMON {

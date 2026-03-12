@@ -1,8 +1,8 @@
 //! X86Codegen: return value operations.
 
-use crate::ir::reexports::{IrConst, Operand, Value};
-use crate::common::types::IrType;
 use super::emit::X86Codegen;
+use crate::common::types::IrType;
+use crate::ir::reexports::{IrConst, Operand, Value};
 
 impl X86Codegen {
     pub(super) fn emit_return_impl(&mut self, val: Option<&Operand>, frame_size: i64) {
@@ -43,9 +43,13 @@ impl X86Codegen {
                     self.state.emit("    subq $16, %rsp");
                     let lo = u64::from_le_bytes(x87[0..8].try_into().unwrap());
                     let hi = u16::from_le_bytes(x87[8..10].try_into().unwrap());
-                    self.state.out.emit_instr_imm_reg("    movabsq", lo as i64, "rax");
+                    self.state
+                        .out
+                        .emit_instr_imm_reg("    movabsq", lo as i64, "rax");
                     self.state.emit("    movq %rax, (%rsp)");
-                    self.state.out.emit_instr_imm_reg("    movq", hi as i64, "rax");
+                    self.state
+                        .out
+                        .emit_instr_imm_reg("    movq", hi as i64, "rax");
                     self.state.emit("    movq %rax, 8(%rsp)");
                     self.state.emit("    fldt (%rsp)");
                     self.state.emit("    addq $16, %rsp");
@@ -112,7 +116,9 @@ impl X86Codegen {
 
     pub(super) fn emit_get_return_f64_second_impl(&mut self, dest: &Value) {
         if let Some(slot) = self.state.get_slot(dest.0) {
-            self.state.out.emit_instr_reg_rbp("    movsd", "xmm1", slot.0);
+            self.state
+                .out
+                .emit_instr_reg_rbp("    movsd", "xmm1", slot.0);
         }
     }
 
@@ -120,12 +126,16 @@ impl X86Codegen {
         match src {
             Operand::Value(v) => {
                 if let Some(slot) = self.state.get_slot(v.0) {
-                    self.state.out.emit_instr_rbp_reg("    movsd", slot.0, "xmm1");
+                    self.state
+                        .out
+                        .emit_instr_rbp_reg("    movsd", slot.0, "xmm1");
                 }
             }
             Operand::Const(IrConst::F64(f)) => {
                 let bits = f.to_bits();
-                self.state.out.emit_instr_imm_reg("    movabsq", bits as i64, "rax");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    movabsq", bits as i64, "rax");
                 self.state.emit("    movq %rax, %xmm1");
                 self.state.reg_cache.invalidate_all();
             }
@@ -139,7 +149,9 @@ impl X86Codegen {
 
     pub(super) fn emit_get_return_f32_second_impl(&mut self, dest: &Value) {
         if let Some(slot) = self.state.get_slot(dest.0) {
-            self.state.out.emit_instr_reg_rbp("    movss", "xmm1", slot.0);
+            self.state
+                .out
+                .emit_instr_reg_rbp("    movss", "xmm1", slot.0);
         }
     }
 
@@ -147,12 +159,16 @@ impl X86Codegen {
         match src {
             Operand::Value(v) => {
                 if let Some(slot) = self.state.get_slot(v.0) {
-                    self.state.out.emit_instr_rbp_reg("    movss", slot.0, "xmm1");
+                    self.state
+                        .out
+                        .emit_instr_rbp_reg("    movss", slot.0, "xmm1");
                 }
             }
             Operand::Const(IrConst::F32(f)) => {
                 let bits = f.to_bits();
-                self.state.out.emit_instr_imm_reg("    movl", bits as i64, "eax");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    movl", bits as i64, "eax");
                 self.state.emit("    movd %eax, %xmm1");
                 self.state.reg_cache.invalidate_all();
             }

@@ -3,24 +3,12 @@
 //!
 //! Extracted from expr.rs to keep expression lowering manageable.
 
-use crate::frontend::parser::ast::{
-    BinOp,
-    Expr,
-    PostfixOp,
-    UnaryOp,
-};
-use crate::ir::reexports::{
-    Instruction,
-    IrBinOp,
-    IrCmpOp,
-    IrConst,
-    IrUnaryOp,
-    Operand,
-    Terminator,
-    Value,
-};
-use crate::common::types::{AddressSpace, IrType, CType, widened_op_type};
 use super::lower::Lowerer;
+use crate::common::types::{widened_op_type, AddressSpace, CType, IrType};
+use crate::frontend::parser::ast::{BinOp, Expr, PostfixOp, UnaryOp};
+use crate::ir::reexports::{
+    Instruction, IrBinOp, IrCmpOp, IrConst, IrUnaryOp, Operand, Terminator, Value,
+};
 
 impl Lowerer {
     // -----------------------------------------------------------------------
@@ -38,8 +26,19 @@ impl Lowerer {
         // vectors can't be constant-folded and get_expr_type doesn't handle them.
         // Per GCC vector extensions, if either operand is a vector, the operation
         // is element-wise. A scalar operand is splatted (broadcast) to all lanes.
-        if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
-            | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr) {
+        if matches!(
+            op,
+            BinOp::Add
+                | BinOp::Sub
+                | BinOp::Mul
+                | BinOp::Div
+                | BinOp::Mod
+                | BinOp::BitAnd
+                | BinOp::BitOr
+                | BinOp::BitXor
+                | BinOp::Shl
+                | BinOp::Shr
+        ) {
             let lhs_ct = self.expr_ctype(lhs);
             if lhs_ct.is_vector() {
                 return self.lower_vector_binary_op(op, lhs, rhs, &lhs_ct);
@@ -57,8 +56,19 @@ impl Lowerer {
         // Only apply to integer-only operations (shifts, bitwise, int arithmetic).
         // Skip float-involving expressions since eval_const_binop_float doesn't
         // correctly handle mixed int/float type promotion (e.g., int - float).
-        if matches!(op, BinOp::Shl | BinOp::Shr | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
-            | BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod) {
+        if matches!(
+            op,
+            BinOp::Shl
+                | BinOp::Shr
+                | BinOp::BitAnd
+                | BinOp::BitOr
+                | BinOp::BitXor
+                | BinOp::Add
+                | BinOp::Sub
+                | BinOp::Mul
+                | BinOp::Div
+                | BinOp::Mod
+        ) {
             let lhs_ty = self.get_expr_type(lhs);
             let rhs_ty = self.get_expr_type(rhs);
             if !lhs_ty.is_float() && !rhs_ty.is_float() {
@@ -94,20 +104,30 @@ impl Lowerer {
         }
 
         // Pointer comparison
-        if matches!(op, BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge)
-            && (self.expr_is_pointer(lhs) || self.expr_is_pointer(rhs)) {
-                let lhs_val = self.lower_expr(lhs);
-                let rhs_val = self.lower_expr(rhs);
-                let cmp_op = Self::binop_to_cmp(*op, true);
-                let ptr_ty = crate::common::types::target_int_ir_type();
-                let dest = self.emit_cmp_val(cmp_op, lhs_val, rhs_val, ptr_ty);
-                return Operand::Value(dest);
-            }
+        if matches!(
+            op,
+            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+        ) && (self.expr_is_pointer(lhs) || self.expr_is_pointer(rhs))
+        {
+            let lhs_val = self.lower_expr(lhs);
+            let rhs_val = self.lower_expr(rhs);
+            let cmp_op = Self::binop_to_cmp(*op, true);
+            let ptr_ty = crate::common::types::target_int_ir_type();
+            let dest = self.emit_cmp_val(cmp_op, lhs_val, rhs_val, ptr_ty);
+            return Operand::Value(dest);
+        }
 
         self.lower_arithmetic_binop(op, lhs, rhs)
     }
 
-    fn lower_complex_binary_op(&mut self, op: &BinOp, lhs: &Expr, rhs: &Expr, lhs_ct: &CType, rhs_ct: &CType) -> Operand {
+    fn lower_complex_binary_op(
+        &mut self,
+        op: &BinOp,
+        lhs: &Expr,
+        rhs: &Expr,
+        lhs_ct: &CType,
+        rhs_ct: &CType,
+    ) -> Operand {
         let result_ct = self.common_complex_type(lhs_ct, rhs_ct);
 
         // Special case: real - complex uses negation for imag part to preserve -0.0
@@ -135,7 +155,12 @@ impl Lowerer {
         }
     }
 
-    fn try_lower_pointer_arithmetic(&mut self, op: &BinOp, lhs: &Expr, rhs: &Expr) -> Option<Operand> {
+    fn try_lower_pointer_arithmetic(
+        &mut self,
+        op: &BinOp,
+        lhs: &Expr,
+        rhs: &Expr,
+    ) -> Option<Operand> {
         let lhs_is_ptr = self.expr_is_pointer(lhs);
         let rhs_is_ptr = self.expr_is_pointer(rhs);
         // Use target-appropriate pointer-width type: I32 on ILP32, I64 on LP64
@@ -150,7 +175,11 @@ impl Lowerer {
             // zero-extend for unsigned) before scaling and adding to the pointer.
             let rhs_val = self.emit_implicit_cast(rhs_val, rhs_ty, ptr_int_ty);
             let scaled_rhs = self.scale_index(rhs_val, elem_size);
-            let ir_op = if *op == BinOp::Add { IrBinOp::Add } else { IrBinOp::Sub };
+            let ir_op = if *op == BinOp::Add {
+                IrBinOp::Add
+            } else {
+                IrBinOp::Sub
+            };
             let dest = self.emit_binop_val(ir_op, lhs_val, scaled_rhs, ptr_int_ty);
             Some(Operand::Value(dest))
         } else if rhs_is_ptr && !lhs_is_ptr && *op == BinOp::Add {
@@ -170,7 +199,8 @@ impl Lowerer {
             let diff = self.emit_binop_val(IrBinOp::Sub, lhs_val, rhs_val, ptr_int_ty);
             if elem_size > 1 {
                 let scale = Operand::Const(IrConst::ptr_int(elem_size as i64));
-                let dest = self.emit_binop_val(IrBinOp::SDiv, Operand::Value(diff), scale, ptr_int_ty);
+                let dest =
+                    self.emit_binop_val(IrBinOp::SDiv, Operand::Value(diff), scale, ptr_int_ty);
                 Some(Operand::Value(dest))
             } else {
                 Some(Operand::Value(diff))
@@ -186,7 +216,12 @@ impl Lowerer {
             return index;
         }
         let ptr_int_ty = crate::common::types::target_int_ir_type();
-        let scaled = self.emit_binop_val(IrBinOp::Mul, index, Operand::Const(IrConst::ptr_int(scale as i64)), ptr_int_ty);
+        let scaled = self.emit_binop_val(
+            IrBinOp::Mul,
+            index,
+            Operand::Const(IrConst::ptr_int(scale as i64)),
+            ptr_int_ty,
+        );
         Operand::Value(scaled)
     }
 
@@ -249,11 +284,23 @@ impl Lowerer {
         match op {
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 let cmp_op = Self::binop_to_cmp(*op, is_unsigned);
-                self.emit(Instruction::Cmp { dest, op: cmp_op, lhs: lhs_val, rhs: rhs_val, ty: common_ty });
+                self.emit(Instruction::Cmp {
+                    dest,
+                    op: cmp_op,
+                    lhs: lhs_val,
+                    rhs: rhs_val,
+                    ty: common_ty,
+                });
             }
             _ => {
                 let ir_op = Self::binop_to_ir(*op, is_unsigned);
-                self.emit(Instruction::BinOp { dest, op: ir_op, lhs: lhs_val, rhs: rhs_val, ty: op_ty });
+                self.emit(Instruction::BinOp {
+                    dest,
+                    op: ir_op,
+                    lhs: lhs_val,
+                    rhs: rhs_val,
+                    ty: op_ty,
+                });
             }
         }
 
@@ -349,7 +396,11 @@ impl Lowerer {
                 }
                 let ty = self.get_expr_type(inner);
                 let inner_ty = self.infer_expr_type(inner);
-                let neg_ty = if ty.is_float() || ty.is_128bit() { ty } else { widened_op_type(ty) };
+                let neg_ty = if ty.is_float() || ty.is_128bit() {
+                    ty
+                } else {
+                    widened_op_type(ty)
+                };
                 let val = self.lower_expr(inner);
                 // C integer promotion (C11 6.3.1.1): sign-extend (or zero-extend
                 // for unsigned) sub-int types to the operation width before negating.
@@ -361,7 +412,12 @@ impl Lowerer {
                     val
                 };
                 let dest = self.fresh_value();
-                self.emit(Instruction::UnaryOp { dest, op: IrUnaryOp::Neg, src: val, ty: neg_ty });
+                self.emit(Instruction::UnaryOp {
+                    dest,
+                    op: IrUnaryOp::Neg,
+                    src: val,
+                    ty: neg_ty,
+                });
                 if !neg_ty.is_float() {
                     let promoted_ty = Self::integer_promote(inner_ty);
                     self.maybe_narrow(dest, promoted_ty)
@@ -376,7 +432,11 @@ impl Lowerer {
                 }
                 let inner_ty = self.infer_expr_type(inner);
                 let ty = self.get_expr_type(inner);
-                let not_ty = if ty.is_128bit() { ty } else { widened_op_type(ty) };
+                let not_ty = if ty.is_128bit() {
+                    ty
+                } else {
+                    widened_op_type(ty)
+                };
                 let val = self.lower_expr(inner);
                 // C integer promotion: widen sub-int types before bitwise NOT,
                 // same as for Neg above. E.g. ~(signed char -13) must sign-extend
@@ -387,13 +447,22 @@ impl Lowerer {
                     val
                 };
                 let dest = self.fresh_value();
-                self.emit(Instruction::UnaryOp { dest, op: IrUnaryOp::Not, src: val, ty: not_ty });
+                self.emit(Instruction::UnaryOp {
+                    dest,
+                    op: IrUnaryOp::Not,
+                    src: val,
+                    ty: not_ty,
+                });
                 let promoted_ty = Self::integer_promote(inner_ty);
                 self.maybe_narrow(dest, promoted_ty)
             }
             UnaryOp::LogicalNot => {
                 let int_ty = crate::common::types::target_int_ir_type();
-                let zero = if int_ty == IrType::I32 { IrConst::I32(0) } else { IrConst::I64(0) };
+                let zero = if int_ty == IrType::I32 {
+                    IrConst::I32(0)
+                } else {
+                    IrConst::I64(0)
+                };
                 let inner_ct = self.expr_ctype(inner);
                 if inner_ct.is_complex() {
                     // !complex_val => (real == 0) && (imag == 0)
@@ -401,7 +470,8 @@ impl Lowerer {
                     let ptr = self.operand_to_value(val);
                     let bool_val = self.lower_complex_to_bool(ptr, &inner_ct);
                     // Negate: bool_val is 1 if nonzero, so !complex is (bool_val == 0)
-                    let dest = self.emit_cmp_val(IrCmpOp::Eq, bool_val, Operand::Const(zero), int_ty);
+                    let dest =
+                        self.emit_cmp_val(IrCmpOp::Eq, bool_val, Operand::Const(zero), int_ty);
                     Operand::Value(dest)
                 } else {
                     let inner_ty = self.infer_expr_type(inner);
@@ -413,12 +483,23 @@ impl Lowerer {
                     // bits and incorrectly compare equal to zero. Float types
                     // are excluded because mask_float_sign_for_truthiness already
                     // reduces them to an I32 boolean on 32-bit targets.
-                    let cmp_ty = if !inner_ty.is_float() && inner_ty.size() > int_ty.size() { inner_ty } else { int_ty };
+                    let cmp_ty = if !inner_ty.is_float() && inner_ty.size() > int_ty.size() {
+                        inner_ty
+                    } else {
+                        int_ty
+                    };
                     let cmp_zero = match cmp_ty {
                         IrType::I64 | IrType::U64 => IrConst::I64(0),
-                        _ => if int_ty == IrType::I32 { IrConst::I32(0) } else { IrConst::I64(0) },
+                        _ => {
+                            if int_ty == IrType::I32 {
+                                IrConst::I32(0)
+                            } else {
+                                IrConst::I64(0)
+                            }
+                        }
                     };
-                    let dest = self.emit_cmp_val(IrCmpOp::Eq, cmp_val, Operand::Const(cmp_zero), cmp_ty);
+                    let dest =
+                        self.emit_cmp_val(IrCmpOp::Eq, cmp_val, Operand::Const(cmp_zero), cmp_ty);
                     Operand::Value(dest)
                 }
             }
@@ -432,7 +513,12 @@ impl Lowerer {
     // Conditional (ternary) operator
     // -----------------------------------------------------------------------
 
-    pub(super) fn lower_conditional(&mut self, cond: &Expr, then_expr: &Expr, else_expr: &Expr) -> Operand {
+    pub(super) fn lower_conditional(
+        &mut self,
+        cond: &Expr,
+        then_expr: &Expr,
+        else_expr: &Expr,
+    ) -> Operand {
         // Complex types are represented as pointers to stack-allocated {real, imag}
         // pairs. Both lower_expr() for complex variables and lower_function_call()
         // for complex-returning functions produce Ptr operands. However,
@@ -460,8 +546,16 @@ impl Lowerer {
                     let common_ct = self.common_complex_type(&then_ct, &else_ct);
                     return self.convert_to_complex(then_val, &then_ct, &common_ct);
                 }
-                let then_ty = if self.expr_is_pointer(then_expr) { IrType::Ptr } else { self.get_expr_type(then_expr) };
-                let else_ty = if self.expr_is_pointer(else_expr) { IrType::Ptr } else { self.get_expr_type(else_expr) };
+                let then_ty = if self.expr_is_pointer(then_expr) {
+                    IrType::Ptr
+                } else {
+                    self.get_expr_type(then_expr)
+                };
+                let else_ty = if self.expr_is_pointer(else_expr) {
+                    IrType::Ptr
+                } else {
+                    self.get_expr_type(else_expr)
+                };
                 let common_ty = Self::common_type(then_ty, else_ty);
                 return self.emit_implicit_cast(then_val, then_ty, common_ty);
             } else {
@@ -471,8 +565,16 @@ impl Lowerer {
                     let common_ct = self.common_complex_type(&then_ct, &else_ct);
                     return self.convert_to_complex(else_val, &else_ct, &common_ct);
                 }
-                let then_ty = if self.expr_is_pointer(then_expr) { IrType::Ptr } else { self.get_expr_type(then_expr) };
-                let else_ty = if self.expr_is_pointer(else_expr) { IrType::Ptr } else { self.get_expr_type(else_expr) };
+                let then_ty = if self.expr_is_pointer(then_expr) {
+                    IrType::Ptr
+                } else {
+                    self.get_expr_type(then_expr)
+                };
+                let else_ty = if self.expr_is_pointer(else_expr) {
+                    IrType::Ptr
+                } else {
+                    self.get_expr_type(else_expr)
+                };
                 let common_ty = Self::common_type(then_ty, else_ty);
                 return self.emit_implicit_cast(else_val, else_ty, common_ty);
             }
@@ -501,8 +603,12 @@ impl Lowerer {
 
         let mut then_ty = self.get_expr_type(then_expr);
         let mut else_ty = self.get_expr_type(else_expr);
-        if self.expr_is_pointer(then_expr) { then_ty = IrType::Ptr; }
-        if self.expr_is_pointer(else_expr) { else_ty = IrType::Ptr; }
+        if self.expr_is_pointer(then_expr) {
+            then_ty = IrType::Ptr;
+        }
+        if self.expr_is_pointer(else_expr) {
+            else_ty = IrType::Ptr;
+        }
         let common_ty = Self::common_type(then_ty, else_ty);
 
         // Detect struct-typed ternary where branches produce inconsistent
@@ -525,7 +631,11 @@ impl Lowerer {
             (false, false)
         };
         // Use target int type for loading packed small-struct data (≤8 bytes)
-        let effective_ty = if needs_struct_load { crate::common::types::target_int_ir_type() } else { common_ty };
+        let effective_ty = if needs_struct_load {
+            crate::common::types::target_int_ir_type()
+        } else {
+            common_ty
+        };
 
         self.emit_ternary_branch(
             cond_val,
@@ -537,7 +647,12 @@ impl Lowerer {
                     // load the packed data to match the other packed-data branch
                     if let Operand::Value(ptr) = then_val {
                         let loaded = s.fresh_value();
-                        s.emit(Instruction::Load { dest: loaded, ptr, ty: effective_ty, seg_override: AddressSpace::Default });
+                        s.emit(Instruction::Load {
+                            dest: loaded,
+                            ptr,
+                            ty: effective_ty,
+                            seg_override: AddressSpace::Default,
+                        });
                         Operand::Value(loaded)
                     } else {
                         then_val
@@ -553,7 +668,12 @@ impl Lowerer {
                     // load the packed data to match the other packed-data branch
                     if let Operand::Value(ptr) = else_val {
                         let loaded = s.fresh_value();
-                        s.emit(Instruction::Load { dest: loaded, ptr, ty: effective_ty, seg_override: AddressSpace::Default });
+                        s.emit(Instruction::Load {
+                            dest: loaded,
+                            ptr,
+                            ty: effective_ty,
+                            seg_override: AddressSpace::Default,
+                        });
                         Operand::Value(loaded)
                     } else {
                         else_val
@@ -599,11 +719,18 @@ impl Lowerer {
 
         // Convert condition to boolean for branching
         let int_ty = crate::common::types::target_int_ir_type();
-        let zero = if int_ty == IrType::I32 { IrConst::I32(0) } else { IrConst::I64(0) };
+        let zero = if int_ty == IrType::I32 {
+            IrConst::I32(0)
+        } else {
+            IrConst::I64(0)
+        };
         let cond_bool = self.fresh_value();
         self.emit(Instruction::Cmp {
-            dest: cond_bool, op: IrCmpOp::Ne,
-            lhs: cond_val, rhs: Operand::Const(zero), ty: int_ty,
+            dest: cond_bool,
+            op: IrCmpOp::Ne,
+            lhs: cond_val,
+            rhs: Operand::Const(zero),
+            ty: int_ty,
         });
 
         self.emit_ternary_branch(
@@ -638,7 +765,11 @@ impl Lowerer {
         let int_ty = crate::common::types::target_int_ir_type();
         let min_alloca_size = int_ty.size();
         let alloca_size = result_ty.size().max(min_alloca_size);
-        let alloca_ty = if result_ty.size() > min_alloca_size { result_ty } else { int_ty };
+        let alloca_ty = if result_ty.size() > min_alloca_size {
+            result_ty
+        } else {
+            int_ty
+        };
         let result_alloca = self.emit_entry_alloca(alloca_ty, alloca_size, 0, false);
 
         let then_label = self.fresh_label();
@@ -653,17 +784,32 @@ impl Lowerer {
 
         self.start_block(then_label);
         let then_val = then_fn(self);
-        self.emit(Instruction::Store { val: then_val, ptr: result_alloca, ty: alloca_ty, seg_override: AddressSpace::Default });
+        self.emit(Instruction::Store {
+            val: then_val,
+            ptr: result_alloca,
+            ty: alloca_ty,
+            seg_override: AddressSpace::Default,
+        });
         self.terminate(Terminator::Branch(end_label));
 
         self.start_block(else_label);
         let else_val = else_fn(self);
-        self.emit(Instruction::Store { val: else_val, ptr: result_alloca, ty: alloca_ty, seg_override: AddressSpace::Default });
+        self.emit(Instruction::Store {
+            val: else_val,
+            ptr: result_alloca,
+            ty: alloca_ty,
+            seg_override: AddressSpace::Default,
+        });
         self.terminate(Terminator::Branch(end_label));
 
         self.start_block(end_label);
         let result = self.fresh_value();
-        self.emit(Instruction::Load { dest: result, ptr: result_alloca, ty: alloca_ty, seg_override: AddressSpace::Default });
+        self.emit(Instruction::Load {
+            dest: result,
+            ptr: result_alloca,
+            ty: alloca_ty,
+            seg_override: AddressSpace::Default,
+        });
         Operand::Value(result)
     }
 
@@ -676,7 +822,11 @@ impl Lowerer {
         let int_ty = crate::common::types::target_int_ir_type();
         let int_size = if int_ty == IrType::I32 { 4 } else { 8 };
         let make_int_const = |v: i64| -> IrConst {
-            if int_ty == IrType::I32 { IrConst::I32(v as i32) } else { IrConst::I64(v) }
+            if int_ty == IrType::I32 {
+                IrConst::I32(v as i32)
+            } else {
+                IrConst::I64(v)
+            }
         };
 
         // Constant-fold the LHS to eliminate dead code at lowering time.
@@ -692,7 +842,12 @@ impl Lowerer {
                 }
                 // nonzero && rhs => result is bool(rhs)
                 let rhs_val = self.lower_condition_expr(rhs);
-                let rhs_bool = self.emit_cmp_val(IrCmpOp::Ne, rhs_val, Operand::Const(make_int_const(0)), int_ty);
+                let rhs_bool = self.emit_cmp_val(
+                    IrCmpOp::Ne,
+                    rhs_val,
+                    Operand::Const(make_int_const(0)),
+                    int_ty,
+                );
                 return Operand::Value(rhs_bool);
             } else {
                 if lhs_is_true {
@@ -701,7 +856,12 @@ impl Lowerer {
                 }
                 // 0 || rhs => result is bool(rhs)
                 let rhs_val = self.lower_condition_expr(rhs);
-                let rhs_bool = self.emit_cmp_val(IrCmpOp::Ne, rhs_val, Operand::Const(make_int_const(0)), int_ty);
+                let rhs_bool = self.emit_cmp_val(
+                    IrCmpOp::Ne,
+                    rhs_val,
+                    Operand::Const(make_int_const(0)),
+                    int_ty,
+                );
                 return Operand::Value(rhs_bool);
             }
         }
@@ -738,25 +898,48 @@ impl Lowerer {
         let lhs_val = self.lower_condition_expr(lhs);
 
         let default_val = if is_and { 0 } else { 1 };
-        self.emit(Instruction::Store { val: Operand::Const(make_int_const(default_val)), ptr: result_alloca, ty: int_ty,
-         seg_override: AddressSpace::Default });
+        self.emit(Instruction::Store {
+            val: Operand::Const(make_int_const(default_val)),
+            ptr: result_alloca,
+            ty: int_ty,
+            seg_override: AddressSpace::Default,
+        });
 
         let (true_label, false_label) = if is_and {
             (rhs_label, end_label)
         } else {
             (end_label, rhs_label)
         };
-        self.terminate(Terminator::CondBranch { cond: lhs_val, true_label, false_label });
+        self.terminate(Terminator::CondBranch {
+            cond: lhs_val,
+            true_label,
+            false_label,
+        });
 
         self.start_block(rhs_label);
         let rhs_val = self.lower_condition_expr(rhs);
-        let rhs_bool = self.emit_cmp_val(IrCmpOp::Ne, rhs_val, Operand::Const(make_int_const(0)), int_ty);
-        self.emit(Instruction::Store { val: Operand::Value(rhs_bool), ptr: result_alloca, ty: int_ty, seg_override: AddressSpace::Default });
+        let rhs_bool = self.emit_cmp_val(
+            IrCmpOp::Ne,
+            rhs_val,
+            Operand::Const(make_int_const(0)),
+            int_ty,
+        );
+        self.emit(Instruction::Store {
+            val: Operand::Value(rhs_bool),
+            ptr: result_alloca,
+            ty: int_ty,
+            seg_override: AddressSpace::Default,
+        });
         self.terminate(Terminator::Branch(end_label));
 
         self.start_block(end_label);
         let result = self.fresh_value();
-        self.emit(Instruction::Load { dest: result, ptr: result_alloca, ty: int_ty, seg_override: AddressSpace::Default });
+        self.emit(Instruction::Load {
+            dest: result,
+            ptr: result_alloca,
+            ty: int_ty,
+            seg_override: AddressSpace::Default,
+        });
         Operand::Value(result)
     }
 
@@ -803,19 +986,40 @@ impl Lowerer {
         self.lower_expr(inner)
     }
 
-    fn try_lower_bitfield_inc_dec(&mut self, inner: &Expr, is_inc: bool, return_new: bool) -> Option<Operand> {
-        let (field_addr, storage_ty, bit_offset, bit_width) = self.resolve_bitfield_lvalue(inner)?;
+    fn try_lower_bitfield_inc_dec(
+        &mut self,
+        inner: &Expr,
+        is_inc: bool,
+        return_new: bool,
+    ) -> Option<Operand> {
+        let (field_addr, storage_ty, bit_offset, bit_width) =
+            self.resolve_bitfield_lvalue(inner)?;
 
-        let current_val = self.extract_bitfield_from_addr(field_addr, storage_ty, bit_offset, bit_width);
+        let current_val =
+            self.extract_bitfield_from_addr(field_addr, storage_ty, bit_offset, bit_width);
 
         let ir_op = if is_inc { IrBinOp::Add } else { IrBinOp::Sub };
         let wt = widened_op_type(IrType::I32);
-        let one = if wt == IrType::I32 { IrConst::I32(1) } else { IrConst::I64(1) };
+        let one = if wt == IrType::I32 {
+            IrConst::I32(1)
+        } else {
+            IrConst::I64(1)
+        };
         let result = self.emit_binop_val(ir_op, current_val, Operand::Const(one), wt);
 
-        self.store_bitfield(field_addr, storage_ty, bit_offset, bit_width, Operand::Value(result));
+        self.store_bitfield(
+            field_addr,
+            storage_ty,
+            bit_offset,
+            bit_width,
+            Operand::Value(result),
+        );
 
-        let ret_val = if return_new { Operand::Value(result) } else { current_val };
+        let ret_val = if return_new {
+            Operand::Value(result)
+        } else {
+            current_val
+        };
         Some(self.truncate_to_bitfield_value(ret_val, bit_width, storage_ty.is_signed()))
     }
 
@@ -823,7 +1027,10 @@ impl Lowerer {
         if ty == IrType::Ptr {
             let ptr_int_ty = crate::common::types::target_int_ir_type();
             let elem_size = self.get_pointer_elem_size_from_expr(expr);
-            (Operand::Const(IrConst::ptr_int(elem_size as i64)), ptr_int_ty)
+            (
+                Operand::Const(IrConst::ptr_int(elem_size as i64)),
+                ptr_int_ty,
+            )
         } else if ty == IrType::F64 {
             (Operand::Const(IrConst::F64(1.0)), IrType::F64)
         } else if ty == IrType::F32 {
@@ -837,7 +1044,11 @@ impl Lowerer {
             // On 64-bit, this is I64; on 32-bit, this is I32 (or I64 for I64/U64).
             // The caller truncates back to the variable's type after the operation.
             let wt = widened_op_type(ty);
-            let one = if wt == IrType::I32 { IrConst::I32(1) } else { IrConst::I64(1) };
+            let one = if wt == IrType::I32 {
+                IrConst::I32(1)
+            } else {
+                IrConst::I64(1)
+            };
             (Operand::Const(one), wt)
         }
     }

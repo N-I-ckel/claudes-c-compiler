@@ -1,12 +1,19 @@
 //! X86Codegen: floating-point binary operations and F128 negation.
 
-use crate::ir::reexports::{IrUnaryOp, Operand, Value};
+use super::emit::X86Codegen;
 use crate::backend::cast::FloatOp;
 use crate::common::types::IrType;
-use super::emit::X86Codegen;
+use crate::ir::reexports::{IrUnaryOp, Operand, Value};
 
 impl X86Codegen {
-    pub(super) fn emit_float_binop_impl(&mut self, dest: &Value, op: FloatOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_float_binop_impl(
+        &mut self,
+        dest: &Value,
+        op: FloatOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         if ty == IrType::F128 {
             let x87_op = match op {
                 FloatOp::Add => "faddp",
@@ -16,7 +23,8 @@ impl X86Codegen {
             };
             self.emit_f128_load_to_x87(lhs);
             self.emit_f128_load_to_x87(rhs);
-            self.state.emit_fmt(format_args!("    {} %st, %st(1)", x87_op));
+            self.state
+                .emit_fmt(format_args!("    {} %st, %st(1)", x87_op));
             if let Some(dest_slot) = self.state.get_slot(dest.0) {
                 self.state.out.emit_instr_rbp("    fstpt", dest_slot.0);
                 self.state.out.emit_instr_rbp("    fldt", dest_slot.0);
@@ -45,7 +53,8 @@ impl X86Codegen {
         self.operand_to_rcx(rhs);
         self.state.emit_fmt(format_args!("    {}", mov_rcx_to_xmm1));
         let suffix = if ty == IrType::F64 { "sd" } else { "ss" };
-        self.state.emit_fmt(format_args!("    {}{} %xmm1, %xmm0", mnemonic, suffix));
+        self.state
+            .emit_fmt(format_args!("    {}{} %xmm1, %xmm0", mnemonic, suffix));
         self.state.emit_fmt(format_args!("    {}", mov_xmm0_to_rax));
         self.state.reg_cache.invalidate_acc();
         self.store_rax_to(dest);
@@ -64,7 +73,13 @@ impl X86Codegen {
         }
     }
 
-    pub(super) fn emit_unaryop_impl(&mut self, dest: &Value, op: IrUnaryOp, src: &Operand, ty: IrType) {
+    pub(super) fn emit_unaryop_impl(
+        &mut self,
+        dest: &Value,
+        op: IrUnaryOp,
+        src: &Operand,
+        ty: IrType,
+    ) {
         if ty == IrType::F128 && op == IrUnaryOp::Neg {
             self.emit_f128_load_to_x87(src);
             self.state.emit("    fchs");

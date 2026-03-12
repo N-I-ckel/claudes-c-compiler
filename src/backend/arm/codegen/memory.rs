@@ -1,9 +1,9 @@
 //! ArmCodegen: memory operations (load, store, memcpy, GEP, stack).
 
-use crate::ir::reexports::{Operand, Value};
+use super::emit::{callee_saved_name, ArmCodegen};
+use crate::backend::state::{SlotAddr, StackSlot};
 use crate::common::types::IrType;
-use crate::backend::state::{StackSlot, SlotAddr};
-use super::emit::{ArmCodegen, callee_saved_name};
+use crate::ir::reexports::{Operand, Value};
 
 impl ArmCodegen {
     // ---- Store/Load overrides ----
@@ -24,7 +24,13 @@ impl ArmCodegen {
         crate::backend::traits::emit_load_default(self, dest, ptr, ty);
     }
 
-    pub(super) fn emit_store_with_const_offset_impl(&mut self, val: &Operand, base: &Value, offset: i64, ty: IrType) {
+    pub(super) fn emit_store_with_const_offset_impl(
+        &mut self,
+        val: &Operand,
+        base: &Value,
+        offset: i64,
+        ty: IrType,
+    ) {
         if ty == IrType::F128 {
             crate::backend::f128_softfloat::f128_emit_store_with_offset(self, val, base, offset);
             return;
@@ -39,7 +45,8 @@ impl ArmCodegen {
                     self.emit_alloca_aligned_addr_impl(slot, id);
                     self.emit_add_offset_to_addr_reg_impl(offset);
                     let reg = Self::reg_for_type("x1", ty);
-                    self.state.emit_fmt(format_args!("    {} {}, [x9]", store_instr, reg));
+                    self.state
+                        .emit_fmt(format_args!("    {} {}, [x9]", store_instr, reg));
                 }
                 SlotAddr::Direct(slot) => {
                     let folded_slot = StackSlot(slot.0 + offset);
@@ -53,13 +60,20 @@ impl ArmCodegen {
                         self.emit_add_offset_to_addr_reg_impl(offset);
                     }
                     let reg = Self::reg_for_type("x1", ty);
-                    self.state.emit_fmt(format_args!("    {} {}, [x9]", store_instr, reg));
+                    self.state
+                        .emit_fmt(format_args!("    {} {}, [x9]", store_instr, reg));
                 }
             }
         }
     }
 
-    pub(super) fn emit_load_with_const_offset_impl(&mut self, dest: &Value, base: &Value, offset: i64, ty: IrType) {
+    pub(super) fn emit_load_with_const_offset_impl(
+        &mut self,
+        dest: &Value,
+        base: &Value,
+        offset: i64,
+        ty: IrType,
+    ) {
         if ty == IrType::F128 {
             crate::backend::f128_softfloat::f128_emit_load_with_offset(self, dest, base, offset);
             return;
@@ -72,7 +86,8 @@ impl ArmCodegen {
                     self.emit_alloca_aligned_addr_impl(slot, id);
                     self.emit_add_offset_to_addr_reg_impl(offset);
                     let (actual_instr, dest_reg) = Self::arm_parse_load(load_instr);
-                    self.state.emit_fmt(format_args!("    {} {}, [x9]", actual_instr, dest_reg));
+                    self.state
+                        .emit_fmt(format_args!("    {} {}, [x9]", actual_instr, dest_reg));
                 }
                 SlotAddr::Direct(slot) => {
                     let folded_slot = StackSlot(slot.0 + offset);
@@ -85,14 +100,20 @@ impl ArmCodegen {
                         self.emit_add_offset_to_addr_reg_impl(offset);
                     }
                     let (actual_instr, dest_reg) = Self::arm_parse_load(load_instr);
-                    self.state.emit_fmt(format_args!("    {} {}, [x9]", actual_instr, dest_reg));
+                    self.state
+                        .emit_fmt(format_args!("    {} {}, [x9]", actual_instr, dest_reg));
                 }
             }
             self.store_x0_to(dest);
         }
     }
 
-    pub(super) fn emit_typed_store_to_slot_impl(&mut self, instr: &'static str, ty: IrType, slot: StackSlot) {
+    pub(super) fn emit_typed_store_to_slot_impl(
+        &mut self,
+        instr: &'static str,
+        ty: IrType,
+        slot: StackSlot,
+    ) {
         let reg = Self::reg_for_type("x0", ty);
         self.emit_store_to_sp(reg, slot.0, instr);
     }
@@ -105,7 +126,8 @@ impl ArmCodegen {
     pub(super) fn emit_load_ptr_from_slot_impl(&mut self, slot: StackSlot, val_id: u32) {
         if let Some(&reg) = self.reg_assignments.get(&val_id) {
             let reg_name = callee_saved_name(reg);
-            self.state.emit_fmt(format_args!("    mov x9, {}", reg_name));
+            self.state
+                .emit_fmt(format_args!("    mov x9, {}", reg_name));
         } else {
             self.emit_load_from_sp("x9", slot.0, "ldr");
         }
@@ -113,31 +135,41 @@ impl ArmCodegen {
 
     pub(super) fn emit_typed_store_indirect_impl(&mut self, instr: &'static str, ty: IrType) {
         let reg = Self::reg_for_type("x1", ty);
-        self.state.emit_fmt(format_args!("    {} {}, [x9]", instr, reg));
+        self.state
+            .emit_fmt(format_args!("    {} {}, [x9]", instr, reg));
     }
 
     pub(super) fn emit_typed_load_indirect_impl(&mut self, instr: &'static str) {
         let (actual_instr, dest_reg) = Self::arm_parse_load(instr);
-        self.state.emit_fmt(format_args!("    {} {}, [x9]", actual_instr, dest_reg));
+        self.state
+            .emit_fmt(format_args!("    {} {}, [x9]", actual_instr, dest_reg));
     }
 
     pub(super) fn emit_add_offset_to_addr_reg_impl(&mut self, offset: i64) {
         if (0..=4095).contains(&offset) {
-            self.state.emit_fmt(format_args!("    add x9, x9, #{}", offset));
+            self.state
+                .emit_fmt(format_args!("    add x9, x9, #{}", offset));
         } else if offset < 0 && (-offset) <= 4095 {
-            self.state.emit_fmt(format_args!("    sub x9, x9, #{}", -offset));
+            self.state
+                .emit_fmt(format_args!("    sub x9, x9, #{}", -offset));
         } else {
             self.load_large_imm("x17", offset);
             self.state.emit("    add x9, x9, x17");
         }
     }
 
-    pub(super) fn emit_slot_addr_to_secondary_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_slot_addr_to_secondary_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr("x1", val_id, slot.0);
         } else if let Some(&reg) = self.reg_assignments.get(&val_id) {
             let reg_name = callee_saved_name(reg);
-            self.state.emit_fmt(format_args!("    mov x1, {}", reg_name));
+            self.state
+                .emit_fmt(format_args!("    mov x1, {}", reg_name));
         } else {
             self.emit_load_from_sp("x1", slot.0, "ldr");
         }
@@ -148,10 +180,16 @@ impl ArmCodegen {
         self.emit_add_sp_offset("x0", folded);
     }
 
-    pub(super) fn emit_gep_indirect_const_impl(&mut self, slot: StackSlot, offset: i64, val_id: u32) {
+    pub(super) fn emit_gep_indirect_const_impl(
+        &mut self,
+        slot: StackSlot,
+        offset: i64,
+        val_id: u32,
+    ) {
         if let Some(&reg) = self.reg_assignments.get(&val_id) {
             let reg_name = callee_saved_name(reg);
-            self.state.emit_fmt(format_args!("    mov x0, {}", reg_name));
+            self.state
+                .emit_fmt(format_args!("    mov x0, {}", reg_name));
         } else {
             self.emit_load_from_sp("x0", slot.0, "ldr");
         }
@@ -162,9 +200,11 @@ impl ArmCodegen {
 
     pub(super) fn emit_add_imm_to_acc_impl(&mut self, imm: i64) {
         if (0..=4095).contains(&imm) {
-            self.state.emit_fmt(format_args!("    add x0, x0, #{}", imm));
+            self.state
+                .emit_fmt(format_args!("    add x0, x0, #{}", imm));
         } else if imm < 0 && (-imm) <= 4095 {
-            self.state.emit_fmt(format_args!("    sub x0, x0, #{}", -imm));
+            self.state
+                .emit_fmt(format_args!("    sub x0, x0, #{}", -imm));
         } else {
             self.emit_load_imm64("x1", imm);
             self.state.emit("    add x0, x0, x1");
@@ -189,34 +229,50 @@ impl ArmCodegen {
     }
 
     pub(super) fn emit_align_acc_impl(&mut self, align: usize) {
-        self.state.emit_fmt(format_args!("    add x0, x0, #{}", align - 1));
-        self.state.emit_fmt(format_args!("    and x0, x0, #{}", -(align as i64)));
+        self.state
+            .emit_fmt(format_args!("    add x0, x0, #{}", align - 1));
+        self.state
+            .emit_fmt(format_args!("    and x0, x0, #{}", -(align as i64)));
     }
 
-    pub(super) fn emit_memcpy_load_dest_addr_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_memcpy_load_dest_addr_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr("x9", val_id, slot.0);
         } else if let Some(&reg) = self.reg_assignments.get(&val_id) {
             let reg_name = callee_saved_name(reg);
-            self.state.emit_fmt(format_args!("    mov x9, {}", reg_name));
+            self.state
+                .emit_fmt(format_args!("    mov x9, {}", reg_name));
         } else {
             self.emit_load_from_sp("x9", slot.0, "ldr");
         }
     }
 
-    pub(super) fn emit_memcpy_load_src_addr_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_memcpy_load_src_addr_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr("x10", val_id, slot.0);
         } else if let Some(&reg) = self.reg_assignments.get(&val_id) {
             let reg_name = callee_saved_name(reg);
-            self.state.emit_fmt(format_args!("    mov x10, {}", reg_name));
+            self.state
+                .emit_fmt(format_args!("    mov x10, {}", reg_name));
         } else {
             self.emit_load_from_sp("x10", slot.0, "ldr");
         }
     }
 
     pub(super) fn emit_alloca_aligned_addr_impl(&mut self, slot: StackSlot, val_id: u32) {
-        let align = self.state.alloca_over_align(val_id)
+        let align = self
+            .state
+            .alloca_over_align(val_id)
             .expect("alloca must have over-alignment for aligned addr emission");
         self.emit_add_sp_offset("x9", slot.0);
         self.load_large_imm("x17", (align - 1) as i64);
@@ -226,7 +282,9 @@ impl ArmCodegen {
     }
 
     pub(super) fn emit_alloca_aligned_addr_to_acc_impl(&mut self, slot: StackSlot, val_id: u32) {
-        let align = self.state.alloca_over_align(val_id)
+        let align = self
+            .state
+            .alloca_over_align(val_id)
             .expect("alloca must have over-alignment for aligned addr emission");
         self.emit_add_sp_offset("x0", slot.0);
         self.load_large_imm("x17", (align - 1) as i64);
@@ -242,7 +300,8 @@ impl ArmCodegen {
         let done_label = format!(".Lmemcpy_done_{}", label_id);
         self.load_large_imm("x11", size as i64);
         self.state.emit_fmt(format_args!("{}:", loop_label));
-        self.state.emit_fmt(format_args!("    cbz x11, {}", done_label));
+        self.state
+            .emit_fmt(format_args!("    cbz x11, {}", done_label));
         self.state.emit("    ldrb w12, [x10], #1");
         self.state.emit("    strb w12, [x9], #1");
         self.state.emit("    sub x11, x11, #1");

@@ -4,9 +4,9 @@
 //! section name, and merges their data with proper alignment. Used by both
 //! executable and shared library linking.
 
-use std::collections::HashMap;
 use super::elf_read::*;
-use super::relocations::{MergedSection, InputSecRef, output_section_name};
+use super::relocations::{output_section_name, InputSecRef, MergedSection};
+use std::collections::HashMap;
 
 /// Merge sections from all input objects into output sections.
 ///
@@ -22,8 +22,11 @@ pub fn merge_sections(
 
     for (obj_idx, (_, obj)) in input_objs.iter().enumerate() {
         for (sec_idx, sec) in obj.sections.iter().enumerate() {
-            if sec.name.is_empty() || sec.sh_type == SHT_SYMTAB || sec.sh_type == SHT_STRTAB
-                || sec.sh_type == SHT_RELA || sec.sh_type == SHT_GROUP
+            if sec.name.is_empty()
+                || sec.sh_type == SHT_SYMTAB
+                || sec.sh_type == SHT_STRTAB
+                || sec.sh_type == SHT_RELA
+                || sec.sh_type == SHT_GROUP
             {
                 continue;
             }

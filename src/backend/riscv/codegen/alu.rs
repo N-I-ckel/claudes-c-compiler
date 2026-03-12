@@ -1,8 +1,8 @@
 //! RiscvCodegen: integer/float arithmetic, unary ops, binop, copy.
 
-use crate::ir::reexports::{IrBinOp, Operand, Value};
-use crate::common::types::IrType;
 use super::emit::RiscvCodegen;
+use crate::common::types::IrType;
+use crate::ir::reexports::{IrBinOp, Operand, Value};
 
 impl RiscvCodegen {
     // ---- Unary ----
@@ -29,7 +29,14 @@ impl RiscvCodegen {
 
     // ---- Integer binop ----
 
-    pub(super) fn emit_int_binop_impl(&mut self, dest: &Value, op: IrBinOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_int_binop_impl(
+        &mut self,
+        dest: &Value,
+        op: IrBinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         // Note: i128 dispatch is handled by the shared emit_binop default in traits.rs.
         self.operand_to_t0(lhs);
         self.state.emit("    mv t1, t0");
@@ -63,7 +70,8 @@ impl RiscvCodegen {
             (IrBinOp::LShr, false) => "srl",
             (IrBinOp::LShr, true) => "srlw",
         };
-        self.state.emit_fmt(format_args!("    {} t0, t1, t2", mnemonic));
+        self.state
+            .emit_fmt(format_args!("    {} t0, t1, t2", mnemonic));
 
         self.store_t0_to(dest);
     }

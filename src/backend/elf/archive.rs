@@ -39,13 +39,17 @@ pub fn parse_thin_archive_members(data: &[u8]) -> Result<Vec<String>, String> {
         if name_str == "/" || name_str == "/SYM64/" {
             // Symbol table — data is stored inline even in thin archives
             pos = data_start + size;
-            if pos % 2 != 0 { pos += 1; }
+            if pos % 2 != 0 {
+                pos += 1;
+            }
             continue;
         } else if name_str == "//" {
             // Extended name table — also stored inline in thin archives
             extended_names = Some(&data[data_start..(data_start + size).min(data.len())]);
             pos = data_start + size;
-            if pos % 2 != 0 { pos += 1; }
+            if pos % 2 != 0 {
+                pos += 1;
+            }
             continue;
         }
 
@@ -59,13 +63,12 @@ pub fn parse_thin_archive_members(data: &[u8]) -> Result<Vec<String>, String> {
                     // In thin archives, names can contain '/' (path separators),
                     // so the terminator is the two-byte sequence "/\n", not just '/'.
                     let slice = &ext[name_off..];
-                    let end = slice.windows(2)
+                    let end = slice
+                        .windows(2)
                         .position(|w| w == b"/\n")
                         .unwrap_or_else(|| {
                             // Fall back to null byte or end of table
-                            slice.iter()
-                                .position(|&b| b == 0)
-                                .unwrap_or(slice.len())
+                            slice.iter().position(|&b| b == 0).unwrap_or(slice.len())
                         });
                     String::from_utf8_lossy(&ext[name_off..name_off + end]).to_string()
                 } else {
@@ -82,7 +85,9 @@ pub fn parse_thin_archive_members(data: &[u8]) -> Result<Vec<String>, String> {
 
         // In thin archives, member headers are consecutive (no inline data)
         pos = data_start;
-        if pos % 2 != 0 { pos += 1; }
+        if pos % 2 != 0 {
+            pos += 1;
+        }
     }
 
     Ok(members)
@@ -177,19 +182,25 @@ pub enum LinkerScriptEntry {
 /// - `INPUT ( libfoo.so.6 -lbar )` - both paths and `-l` library references
 pub fn parse_linker_script(content: &str) -> Option<Vec<String>> {
     let entries = parse_linker_script_entries(content)?;
-    let paths: Vec<String> = entries.into_iter().filter_map(|e| match e {
-        LinkerScriptEntry::Path(p) => Some(p),
-        LinkerScriptEntry::Lib(_) => None,
-    }).collect();
-    if paths.is_empty() { None } else { Some(paths) }
+    let paths: Vec<String> = entries
+        .into_iter()
+        .filter_map(|e| match e {
+            LinkerScriptEntry::Path(p) => Some(p),
+            LinkerScriptEntry::Lib(_) => None,
+        })
+        .collect();
+    if paths.is_empty() {
+        None
+    } else {
+        Some(paths)
+    }
 }
 
 /// Parse a GNU linker script, returning all entries including `-l` library references.
 /// This is the full-featured version that callers with library search path access should use.
 pub fn parse_linker_script_entries(content: &str) -> Option<Vec<LinkerScriptEntry>> {
     // Try GROUP first, then INPUT
-    let directive_start = content.find("GROUP")
-        .or_else(|| content.find("INPUT"))?;
+    let directive_start = content.find("GROUP").or_else(|| content.find("INPUT"))?;
 
     let rest = &content[directive_start..];
     let paren_start = rest.find('(')?;
@@ -217,19 +228,29 @@ pub fn parse_linker_script_entries(content: &str) -> Option<Vec<LinkerScriptEntr
     let mut in_as_needed = false;
     for token in inside.split_whitespace() {
         match token {
-            "AS_NEEDED" => { in_as_needed = true; continue; }
+            "AS_NEEDED" => {
+                in_as_needed = true;
+                continue;
+            }
             "(" => continue,
-            ")" => { in_as_needed = false; continue; }
+            ")" => {
+                in_as_needed = false;
+                continue;
+            }
             _ => {}
         }
-        if in_as_needed { continue; }
+        if in_as_needed {
+            continue;
+        }
 
         if let Some(lib_name) = token.strip_prefix("-l") {
             // -ltinfo -> Lib("tinfo")
             if !lib_name.is_empty() {
                 entries.push(LinkerScriptEntry::Lib(lib_name.to_string()));
             }
-        } else if token.starts_with('/') || token.ends_with(".so") || token.ends_with(".a")
+        } else if token.starts_with('/')
+            || token.ends_with(".so")
+            || token.ends_with(".a")
             || token.contains(".so.")
             || token.starts_with("lib")
         {
@@ -237,5 +258,9 @@ pub fn parse_linker_script_entries(content: &str) -> Option<Vec<LinkerScriptEntr
         }
     }
 
-    if entries.is_empty() { None } else { Some(entries) }
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    }
 }

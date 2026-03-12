@@ -1,24 +1,29 @@
 //! ArmCodegen: prologue/epilogue and stack frame operations.
 
-use crate::ir::reexports::{IrFunction, Instruction, Value};
-use crate::common::types::IrType;
-use crate::backend::generation::{calculate_stack_space_common, find_param_alloca};
-use crate::backend::call_abi::{ParamClass, classify_params};
 use super::emit::{
-    ArmCodegen, callee_saved_name, ARM_CALLEE_SAVED, ARM_CALLER_SAVED, ARM_ARG_REGS,
+    callee_saved_name, ArmCodegen, ARM_ARG_REGS, ARM_CALLEE_SAVED, ARM_CALLER_SAVED,
 };
+use crate::backend::call_abi::{classify_params, ParamClass};
+use crate::backend::generation::{calculate_stack_space_common, find_param_alloca};
+use crate::common::types::IrType;
+use crate::ir::reexports::{Instruction, IrFunction, Value};
 
 impl ArmCodegen {
     // ---- calculate_stack_space ----
 
     pub(super) fn calculate_stack_space_impl(&mut self, func: &IrFunction) -> i64 {
-        use crate::ir::reexports::Instruction;
         use crate::backend::regalloc::PhysReg;
+        use crate::ir::reexports::Instruction;
 
         let mut asm_clobbered_regs: Vec<PhysReg> = Vec::new();
         Self::prescan_inline_asm_callee_saved(func, &mut asm_clobbered_regs);
-        let base_regs: &[PhysReg] = if func.is_variadic { &[] } else { &ARM_CALLEE_SAVED };
-        let available_regs = crate::backend::generation::filter_available_regs(base_regs, &asm_clobbered_regs);
+        let base_regs: &[PhysReg] = if func.is_variadic {
+            &[]
+        } else {
+            &ARM_CALLEE_SAVED
+        };
+        let available_regs =
+            crate::backend::generation::filter_available_regs(base_regs, &asm_clobbered_regs);
 
         let mut caller_saved_regs: Vec<PhysReg> = if func.is_variadic {
             Vec::new()
@@ -29,9 +34,13 @@ impl ArmCodegen {
         for block in &func.blocks {
             for inst in &block.instructions {
                 match inst {
-                    Instruction::BinOp { ty, .. } | Instruction::UnaryOp { ty, .. }
-                    | Instruction::Cmp { ty, .. } | Instruction::Load { ty, .. }
-                    | Instruction::Store { ty, .. } if *ty == IrType::F128 => {
+                    Instruction::BinOp { ty, .. }
+                    | Instruction::UnaryOp { ty, .. }
+                    | Instruction::Cmp { ty, .. }
+                    | Instruction::Load { ty, .. }
+                    | Instruction::Store { ty, .. }
+                        if *ty == IrType::F128 =>
+                    {
                         has_f128_ops = true;
                     }
                     Instruction::Cast { to_ty, .. } if *to_ty == IrType::F128 => {
@@ -48,18 +57,32 @@ impl ArmCodegen {
             caller_saved_regs.clear();
         }
 
-        let (reg_assigned, cached_liveness) = crate::backend::generation::run_regalloc_and_merge_clobbers(
-            func, available_regs, caller_saved_regs, &asm_clobbered_regs,
-            &mut self.reg_assignments, &mut self.used_callee_saved,
+        let (reg_assigned, cached_liveness) =
+            crate::backend::generation::run_regalloc_and_merge_clobbers(
+                func,
+                available_regs,
+                caller_saved_regs,
+                &asm_clobbered_regs,
+                &mut self.reg_assignments,
+                &mut self.used_callee_saved,
+                false,
+            );
+
+        let mut space = calculate_stack_space_common(
+            &mut self.state,
+            func,
+            16,
+            |space, alloc_size, align| {
+                let effective_align = if align > 0 { align.max(8) } else { 8 };
+                let slot = (space + effective_align - 1) & !(effective_align - 1);
+                let new_space = slot + ((alloc_size + 7) & !7).max(8);
+                (slot, new_space)
+            },
+            &reg_assigned,
+            &ARM_CALLEE_SAVED,
+            cached_liveness,
             false,
         );
-
-        let mut space = calculate_stack_space_common(&mut self.state, func, 16, |space, alloc_size, align| {
-            let effective_align = if align > 0 { align.max(8) } else { 8 };
-            let slot = (space + effective_align - 1) & !(effective_align - 1);
-            let new_space = slot + ((alloc_size + 7) & !7).max(8);
-            (slot, new_space)
-        }, &reg_assigned, &ARM_CALLEE_SAVED, cached_liveness, false);
 
         if func.is_variadic {
             space = (space + 7) & !7;
@@ -85,14 +108,18 @@ impl ArmCodegen {
                     continue;
                 }
                 named_gp += class.gp_reg_count();
-                if matches!(class, crate::backend::call_abi::ParamClass::FloatReg { .. }
-                    | crate::backend::call_abi::ParamClass::F128FpReg { .. }) {
+                if matches!(
+                    class,
+                    crate::backend::call_abi::ParamClass::FloatReg { .. }
+                        | crate::backend::call_abi::ParamClass::F128FpReg { .. }
+                ) {
                     named_fp += 1;
                 }
             }
             self.va_named_gp_count = named_gp.min(8);
             self.va_named_fp_count = named_fp.min(8);
-            self.va_named_stack_bytes = crate::backend::call_abi::named_params_stack_bytes(&param_classes);
+            self.va_named_stack_bytes =
+                crate::backend::call_abi::named_params_stack_bytes(&param_classes);
         }
 
         let save_count = self.used_callee_saved.len() as i64;
@@ -157,11 +184,12 @@ impl ArmCodegen {
         self.state.num_params = func.params.len();
         self.state.func_is_variadic = func.is_variadic;
 
-        self.state.param_alloca_slots = (0..func.params.len()).map(|i| {
-            find_param_alloca(func, i).and_then(|(dest, ty)| {
-                self.state.get_slot(dest.0).map(|slot| (slot, ty))
+        self.state.param_alloca_slots = (0..func.params.len())
+            .map(|i| {
+                find_param_alloca(func, i)
+                    .and_then(|(dest, ty)| self.state.get_slot(dest.0).map(|slot| (slot, ty)))
             })
-        }).collect();
+            .collect();
 
         // Pre-store optimization: when a GP param's alloca is dead (promoted by
         // mem2reg) but the ParamRef dest is register-allocated to a callee-saved
@@ -176,7 +204,10 @@ impl ArmCodegen {
         let mut paramref_dests: Vec<Option<Value>> = vec![None; func.params.len()];
         for block in &func.blocks {
             for inst in &block.instructions {
-                if let Instruction::ParamRef { dest, param_idx, .. } = inst {
+                if let Instruction::ParamRef {
+                    dest, param_idx, ..
+                } = inst
+                {
                     if *param_idx < paramref_dests.len() {
                         paramref_dests[*param_idx] = Some(*dest);
                     }
@@ -185,7 +216,8 @@ impl ArmCodegen {
         }
         // Build a map from physical register -> list of param indices that use it,
         // so we can detect when two params share the same callee-saved register.
-        let mut reg_to_params: crate::common::fx_hash::FxHashMap<u8, Vec<usize>> = crate::common::fx_hash::FxHashMap::default();
+        let mut reg_to_params: crate::common::fx_hash::FxHashMap<u8, Vec<usize>> =
+            crate::common::fx_hash::FxHashMap::default();
         for (i, _) in func.params.iter().enumerate() {
             if let Some(paramref_dest) = paramref_dests[i] {
                 if let Some(&phys_reg) = self.reg_assignments.get(&paramref_dest.0) {
@@ -196,12 +228,19 @@ impl ArmCodegen {
 
         for (i, _) in func.params.iter().enumerate() {
             let class = param_classes[i];
-            if !class.uses_gp_reg() { continue; }
+            if !class.uses_gp_reg() {
+                continue;
+            }
             // Skip params that have an alloca slot (they'll be handled by emit_store_gp_params)
-            let has_slot = self.state.param_alloca_slots.get(i)
+            let has_slot = self
+                .state
+                .param_alloca_slots
+                .get(i)
                 .and_then(|opt| opt.as_ref())
                 .is_some();
-            if has_slot { continue; }
+            if has_slot {
+                continue;
+            }
 
             if let Some(paramref_dest) = paramref_dests[i] {
                 if let Some(&phys_reg) = self.reg_assignments.get(&paramref_dest.0) {
@@ -222,21 +261,21 @@ impl ArmCodegen {
                         }
                         let dest_reg = callee_saved_name(phys_reg);
                         if let ParamClass::IntReg { reg_idx } = class {
-                                let actual_idx = if sret_shift > 0 && reg_idx == 0 && i == 0 {
-                                    // sret: the pointer comes in x8
-                                    self.state.emit_fmt(format_args!(
-                                        "    mov {}, x8", dest_reg));
-                                    self.state.param_pre_stored.insert(i);
-                                    continue;
-                                } else if reg_idx >= sret_shift {
-                                    reg_idx - sret_shift
-                                } else {
-                                    reg_idx
-                                };
-                                let src_reg = ARM_ARG_REGS[actual_idx];
-                                self.state.emit_fmt(format_args!(
-                                    "    mov {}, {}", dest_reg, src_reg));
+                            let actual_idx = if sret_shift > 0 && reg_idx == 0 && i == 0 {
+                                // sret: the pointer comes in x8
+                                self.state
+                                    .emit_fmt(format_args!("    mov {}, x8", dest_reg));
                                 self.state.param_pre_stored.insert(i);
+                                continue;
+                            } else if reg_idx >= sret_shift {
+                                reg_idx - sret_shift
+                            } else {
+                                reg_idx
+                            };
+                            let src_reg = ARM_ARG_REGS[actual_idx];
+                            self.state
+                                .emit_fmt(format_args!("    mov {}, {}", dest_reg, src_reg));
+                            self.state.param_pre_stored.insert(i);
                         }
                     }
                 }
@@ -283,20 +322,27 @@ impl ArmCodegen {
                 let actual_reg = if sret_shift > 0 && reg_idx == 0 && param_idx == 0 {
                     Self::reg_for_type("x8", ty)
                 } else {
-                    let actual_idx = if reg_idx >= sret_shift { reg_idx - sret_shift } else { reg_idx };
+                    let actual_idx = if reg_idx >= sret_shift {
+                        reg_idx - sret_shift
+                    } else {
+                        reg_idx
+                    };
                     Self::reg_for_type(ARM_ARG_REGS[actual_idx], ty)
                 };
                 let dst = Self::reg_for_type("x0", ty);
                 if actual_reg != dst {
-                    self.state.emit_fmt(format_args!("    mov {}, {}", dst, actual_reg));
+                    self.state
+                        .emit_fmt(format_args!("    mov {}, {}", dst, actual_reg));
                 }
                 self.store_x0_to(dest);
             }
             ParamClass::FloatReg { reg_idx } => {
                 if ty == IrType::F32 {
-                    self.state.emit_fmt(format_args!("    fmov w0, s{}", reg_idx));
+                    self.state
+                        .emit_fmt(format_args!("    fmov w0, s{}", reg_idx));
                 } else {
-                    self.state.emit_fmt(format_args!("    fmov x0, d{}", reg_idx));
+                    self.state
+                        .emit_fmt(format_args!("    fmov x0, d{}", reg_idx));
                 }
                 self.store_x0_to(dest);
             }

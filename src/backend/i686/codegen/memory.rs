@@ -1,11 +1,11 @@
 //! I686Codegen: memory operations (load, store, memcpy, GEP, stack).
 
-use crate::ir::reexports::{Operand, Value};
-use crate::common::types::IrType;
-use crate::backend::state::{StackSlot, SlotAddr};
+use super::emit::{phys_reg_name, I686Codegen};
+use crate::backend::state::{SlotAddr, StackSlot};
 use crate::backend::traits::ArchCodegen;
+use crate::common::types::IrType;
 use crate::emit;
-use super::emit::{I686Codegen, phys_reg_name};
+use crate::ir::reexports::{Operand, Value};
 
 impl I686Codegen {
     // ---- Store/Load overrides ----
@@ -133,7 +133,13 @@ impl I686Codegen {
         crate::backend::traits::emit_load_default(self, dest, ptr, ty);
     }
 
-    pub(super) fn emit_store_with_const_offset_impl(&mut self, val: &Operand, base: &Value, offset: i64, ty: IrType) {
+    pub(super) fn emit_store_with_const_offset_impl(
+        &mut self,
+        val: &Operand,
+        base: &Value,
+        offset: i64,
+        ty: IrType,
+    ) {
         if ty == IrType::F128 {
             self.emit_f128_load_to_x87(val);
             let addr = self.state.resolve_slot_addr(base.0);
@@ -240,7 +246,13 @@ impl I686Codegen {
         }
     }
 
-    pub(super) fn emit_load_with_const_offset_impl(&mut self, dest: &Value, base: &Value, offset: i64, ty: IrType) {
+    pub(super) fn emit_load_with_const_offset_impl(
+        &mut self,
+        dest: &Value,
+        base: &Value,
+        offset: i64,
+        ty: IrType,
+    ) {
         if ty == IrType::F128 {
             let addr = self.state.resolve_slot_addr(base.0);
             if let Some(addr) = addr {
@@ -334,7 +346,12 @@ impl I686Codegen {
 
     // ---- Typed store/load helpers ----
 
-    pub(super) fn emit_typed_store_to_slot_impl(&mut self, instr: &'static str, ty: IrType, slot: StackSlot) {
+    pub(super) fn emit_typed_store_to_slot_impl(
+        &mut self,
+        instr: &'static str,
+        ty: IrType,
+        slot: StackSlot,
+    ) {
         let reg = self.eax_for_type(ty);
         let sr = self.slot_ref(slot);
         emit!(self.state, "    {} {}, {}", instr, reg, sr);
@@ -388,7 +405,12 @@ impl I686Codegen {
         }
     }
 
-    pub(super) fn emit_slot_addr_to_secondary_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_slot_addr_to_secondary_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr_to("ecx", val_id, slot);
         } else if let Some(phys) = self.reg_assignments.get(&val_id).copied() {
@@ -406,7 +428,12 @@ impl I686Codegen {
         emit!(self.state, "    leal {}, %eax", sr);
     }
 
-    pub(super) fn emit_gep_indirect_const_impl(&mut self, slot: StackSlot, offset: i64, val_id: u32) {
+    pub(super) fn emit_gep_indirect_const_impl(
+        &mut self,
+        slot: StackSlot,
+        offset: i64,
+        val_id: u32,
+    ) {
         if let Some(phys) = self.reg_assignments.get(&val_id).copied() {
             let reg = phys_reg_name(phys);
             if offset == 0 {
@@ -455,7 +482,9 @@ impl I686Codegen {
     // ---- Alloca aligned addr ----
 
     pub(super) fn emit_alloca_aligned_addr_impl(&mut self, slot: StackSlot, val_id: u32) {
-        let align = self.state.alloca_over_align(val_id)
+        let align = self
+            .state
+            .alloca_over_align(val_id)
             .expect("alloca must have over-alignment for aligned addr emission");
         let sr = self.slot_ref(slot);
         emit!(self.state, "    leal {}, %ecx", sr);
@@ -464,7 +493,9 @@ impl I686Codegen {
     }
 
     pub(super) fn emit_alloca_aligned_addr_to_acc_impl(&mut self, slot: StackSlot, val_id: u32) {
-        let align = self.state.alloca_over_align(val_id)
+        let align = self
+            .state
+            .alloca_over_align(val_id)
             .expect("alloca must have over-alignment for aligned addr emission");
         let sr = self.slot_ref(slot);
         emit!(self.state, "    leal {}, %eax", sr);
@@ -475,7 +506,12 @@ impl I686Codegen {
 
     // ---- Memcpy ----
 
-    pub(super) fn emit_memcpy_load_dest_addr_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_memcpy_load_dest_addr_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr_to("edi", val_id, slot);
         } else if let Some(phys) = self.reg_assignments.get(&val_id).copied() {
@@ -487,7 +523,12 @@ impl I686Codegen {
         }
     }
 
-    pub(super) fn emit_memcpy_load_src_addr_impl(&mut self, slot: StackSlot, is_alloca: bool, val_id: u32) {
+    pub(super) fn emit_memcpy_load_src_addr_impl(
+        &mut self,
+        slot: StackSlot,
+        is_alloca: bool,
+        val_id: u32,
+    ) {
         if is_alloca {
             self.emit_alloca_addr_to("esi", val_id, slot);
         } else if let Some(phys) = self.reg_assignments.get(&val_id).copied() {

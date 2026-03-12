@@ -1,19 +1,19 @@
 //! I686Codegen: prologue/epilogue and stack frame operations.
 
-use crate::ir::reexports::{Instruction, IrFunction, Value};
-use crate::common::types::IrType;
-use crate::backend::generation::{
-    is_i128_type, calculate_stack_space_common, run_regalloc_and_merge_clobbers,
-    filter_available_regs, find_param_alloca, collect_inline_asm_callee_saved_with_generic,
-};
-use crate::backend::call_abi::{ParamClass, classify_params};
-use crate::emit;
 use super::emit::{
-    I686Codegen, phys_reg_name, i686_constraint_to_phys, i686_clobber_to_phys,
-    I686_CALLEE_SAVED, I686_CALLEE_SAVED_WITH_EBP, I686_CALLER_SAVED,
+    i686_clobber_to_phys, i686_constraint_to_phys, phys_reg_name, I686Codegen, I686_CALLEE_SAVED,
+    I686_CALLEE_SAVED_WITH_EBP, I686_CALLER_SAVED,
+};
+use crate::backend::call_abi::{classify_params, ParamClass};
+use crate::backend::generation::{
+    calculate_stack_space_common, collect_inline_asm_callee_saved_with_generic,
+    filter_available_regs, find_param_alloca, is_i128_type, run_regalloc_and_merge_clobbers,
 };
 use crate::backend::regalloc::PhysReg;
 use crate::backend::traits::ArchCodegen;
+use crate::common::types::IrType;
+use crate::emit;
+use crate::ir::reexports::{Instruction, IrFunction, Value};
 
 impl I686Codegen {
     // ---- calculate_stack_space ----
@@ -52,7 +52,8 @@ impl I686Codegen {
         };
 
         collect_inline_asm_callee_saved_with_generic(
-            func, &mut asm_clobbered_regs,
+            func,
+            &mut asm_clobbered_regs,
             i686_constraint_to_phys,
             i686_clobber_to_phys,
             callee_saved_set,
@@ -66,8 +67,12 @@ impl I686Codegen {
         let caller_saved_regs = I686_CALLER_SAVED.to_vec();
 
         let (reg_assigned, cached_liveness) = run_regalloc_and_merge_clobbers(
-            func, available_regs, caller_saved_regs, &asm_clobbered_regs,
-            &mut self.reg_assignments, &mut self.used_callee_saved,
+            func,
+            available_regs,
+            caller_saved_regs,
+            &asm_clobbered_regs,
+            &mut self.reg_assignments,
+            &mut self.used_callee_saved,
             false,
         );
 
@@ -91,21 +96,34 @@ impl I686Codegen {
         let omit_fp = self.omit_frame_pointer;
         let alignment_bias: i64 = if omit_fp { 12 } else { 8 };
 
-        calculate_stack_space_common(&mut self.state, func, callee_saved_bytes, |space, alloc_size, align| {
-            let effective_align = if align > 0 { align.max(4) } else { 4 };
-            let alloc = (alloc_size + 3) & !3;
-            let required = space + alloc;
-            let new_space = if effective_align >= 16 {
-                let bias = alignment_bias;
-                let a = effective_align;
-                let rem = ((required % a) + a) % a;
-                let needed = if rem <= bias { bias - rem } else { a - rem + bias };
-                required + needed
-            } else {
-                ((required + effective_align - 1) / effective_align) * effective_align
-            };
-            (-new_space, new_space)
-        }, &reg_assigned, callee_saved_set, cached_liveness, false)
+        calculate_stack_space_common(
+            &mut self.state,
+            func,
+            callee_saved_bytes,
+            |space, alloc_size, align| {
+                let effective_align = if align > 0 { align.max(4) } else { 4 };
+                let alloc = (alloc_size + 3) & !3;
+                let required = space + alloc;
+                let new_space = if effective_align >= 16 {
+                    let bias = alignment_bias;
+                    let a = effective_align;
+                    let rem = ((required % a) + a) % a;
+                    let needed = if rem <= bias {
+                        bias - rem
+                    } else {
+                        a - rem + bias
+                    };
+                    required + needed
+                } else {
+                    ((required + effective_align - 1) / effective_align) * effective_align
+                };
+                (-new_space, new_space)
+            },
+            &reg_assigned,
+            callee_saved_set,
+            cached_liveness,
+            false,
+        )
     }
 
     // ---- aligned_frame_size ----
@@ -155,8 +173,10 @@ impl I686Codegen {
         }
 
         if self.state.pic_mode {
-            debug_assert!(self.used_callee_saved.contains(&PhysReg(0)),
-                "PIC mode requires ebx in used_callee_saved");
+            debug_assert!(
+                self.used_callee_saved.contains(&PhysReg(0)),
+                "PIC mode requires ebx in used_callee_saved"
+            );
             self.state.emit("    call __x86.get_pc_thunk.bx");
             self.state.emit("    addl $_GLOBAL_OFFSET_TABLE_, %ebx");
             self.needs_pc_thunk_bx = true;
@@ -210,11 +230,12 @@ impl I686Codegen {
         self.state.num_params = func.params.len();
         self.state.func_is_variadic = func.is_variadic;
 
-        self.state.param_alloca_slots = (0..func.params.len()).map(|i| {
-            find_param_alloca(func, i).and_then(|(dest, ty)| {
-                self.state.get_slot(dest.0).map(|slot| (slot, ty))
+        self.state.param_alloca_slots = (0..func.params.len())
+            .map(|i| {
+                find_param_alloca(func, i)
+                    .and_then(|(dest, ty)| self.state.get_slot(dest.0).map(|slot| (slot, ty)))
             })
-        }).collect();
+            .collect();
 
         let fastcall_reg_count = if self.is_fastcall {
             self.count_fastcall_reg_params(func)
@@ -226,7 +247,9 @@ impl I686Codegen {
         if self.is_fastcall {
             let mut total_stack_bytes: usize = 0;
             for (i, _p) in func.params.iter().enumerate() {
-                if i < fastcall_reg_count { continue; }
+                if i < fastcall_reg_count {
+                    continue;
+                }
                 let ty = func.params[i].ty;
                 let size = match ty {
                     IrType::I64 | IrType::U64 | IrType::F64 => 8,
@@ -248,7 +271,10 @@ impl I686Codegen {
         if self.is_fastcall {
             for block in &func.blocks {
                 for inst in &block.instructions {
-                    if let Instruction::ParamRef { dest, param_idx, .. } = inst {
+                    if let Instruction::ParamRef {
+                        dest, param_idx, ..
+                    } = inst
+                    {
                         if *param_idx < paramref_dests.len() {
                             paramref_dests[*param_idx] = Some(*dest);
                         }
@@ -262,7 +288,8 @@ impl I686Codegen {
 
         // Build a map from physical register -> list of param indices that use it,
         // so we can detect when two params share the same callee-saved register.
-        let mut reg_to_params: crate::common::fx_hash::FxHashMap<u8, Vec<usize>> = crate::common::fx_hash::FxHashMap::default();
+        let mut reg_to_params: crate::common::fx_hash::FxHashMap<u8, Vec<usize>> =
+            crate::common::fx_hash::FxHashMap::default();
         if self.is_fastcall {
             for (i, _) in func.params.iter().enumerate() {
                 if let Some(paramref_dest) = paramref_dests[i] {
@@ -292,12 +319,17 @@ impl I686Codegen {
                         .and_then(|(dest, _)| self.state.get_slot(dest.0))
                         .is_some();
                     if !has_alloca_slot {
-                        let src_reg = if fastcall_reg_idx == 0 { "%ecx" } else { "%edx" };
+                        let src_reg = if fastcall_reg_idx == 0 {
+                            "%ecx"
+                        } else {
+                            "%edx"
+                        };
                         if let Some(paramref_dest) = paramref_dests[i] {
                             if let Some(&phys_reg) = self.reg_assignments.get(&paramref_dest.0) {
                                 // Safety check: if another param's dest is also assigned
                                 // to this register, skip pre-store to avoid conflicts.
-                                let shared = reg_to_params.get(&phys_reg.0)
+                                let shared = reg_to_params
+                                    .get(&phys_reg.0)
                                     .is_some_and(|users| users.len() > 1);
                                 if !shared {
                                     // Store directly to the callee-saved register
@@ -322,14 +354,20 @@ impl I686Codegen {
                 if let Some(slot) = self.state.get_slot(dest.0) {
                     (slot, ty, dest.0)
                 } else {
-                    if self.is_fastcall && fastcall_reg_idx < fastcall_reg_count && i < func.params.len()
-                        && self.is_fastcall_reg_eligible(ty) {
-                            fastcall_reg_idx += 1;
-                        }
+                    if self.is_fastcall
+                        && fastcall_reg_idx < fastcall_reg_count
+                        && i < func.params.len()
+                        && self.is_fastcall_reg_eligible(ty)
+                    {
+                        fastcall_reg_idx += 1;
+                    }
                     continue;
                 }
             } else {
-                if self.is_fastcall && fastcall_reg_idx < fastcall_reg_count && i < func.params.len() {
+                if self.is_fastcall
+                    && fastcall_reg_idx < fastcall_reg_count
+                    && i < func.params.len()
+                {
                     let param_ty = func.params[i].ty;
                     if self.is_fastcall_reg_eligible(param_ty) {
                         fastcall_reg_idx += 1;
@@ -338,8 +376,15 @@ impl I686Codegen {
                 continue;
             };
 
-            if self.is_fastcall && fastcall_reg_idx < fastcall_reg_count && self.is_fastcall_reg_eligible(ty) {
-                let src_reg_full = if fastcall_reg_idx == 0 { "%ecx" } else { "%edx" };
+            if self.is_fastcall
+                && fastcall_reg_idx < fastcall_reg_count
+                && self.is_fastcall_reg_eligible(ty)
+            {
+                let src_reg_full = if fastcall_reg_idx == 0 {
+                    "%ecx"
+                } else {
+                    "%edx"
+                };
                 let slot_ref = self.slot_ref(slot);
                 // For sub-int types, sign/zero-extend to full 32-bit before
                 // storing to the 4-byte SSA slot (avoids partial-write issues).
@@ -372,7 +417,11 @@ impl I686Codegen {
                 continue;
             }
 
-            let stack_offset_adjust = if self.is_fastcall { fastcall_reg_count as i64 * 4 } else { 0 };
+            let stack_offset_adjust = if self.is_fastcall {
+                fastcall_reg_count as i64 * 4
+            } else {
+                0
+            };
 
             match class {
                 ParamClass::StackScalar { offset } => {
@@ -579,16 +628,22 @@ impl I686Codegen {
         }
 
         let stack_base: i64 = 8;
-        let stack_offset_adjust = if self.is_fastcall { self.fastcall_reg_param_count as i64 * 4 } else { 0 };
+        let stack_offset_adjust = if self.is_fastcall {
+            self.fastcall_reg_param_count as i64 * 4
+        } else {
+            0
+        };
         let param_offset = if param_idx < self.state.param_classes.len() {
             match self.state.param_classes[param_idx] {
-                ParamClass::StackScalar { offset } |
-                ParamClass::StructStack { offset, .. } |
-                ParamClass::LargeStructStack { offset, .. } |
-                ParamClass::F128AlwaysStack { offset } |
-                ParamClass::I128Stack { offset } |
-                ParamClass::F128Stack { offset } |
-                ParamClass::LargeStructByRefStack { offset, .. } => stack_base + offset - stack_offset_adjust,
+                ParamClass::StackScalar { offset }
+                | ParamClass::StructStack { offset, .. }
+                | ParamClass::LargeStructStack { offset, .. }
+                | ParamClass::F128AlwaysStack { offset }
+                | ParamClass::I128Stack { offset }
+                | ParamClass::F128Stack { offset }
+                | ParamClass::LargeStructByRefStack { offset, .. } => {
+                    stack_base + offset - stack_offset_adjust
+                }
                 ParamClass::IntReg { .. } => {
                     // Regparm: param was stored to its alloca slot in emit_store_params.
                     // This should have been handled by the alloca_slot path above.

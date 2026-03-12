@@ -8,9 +8,15 @@ use std::collections::HashMap;
 use super::elf::*;
 use super::types::GlobalSymbol;
 
-pub(super) fn collect_ifunc_symbols(globals: &HashMap<String, GlobalSymbol>, is_static: bool) -> Vec<String> {
-    if !is_static { return Vec::new(); }
-    let mut ifunc_symbols: Vec<String> = globals.iter()
+pub(super) fn collect_ifunc_symbols(
+    globals: &HashMap<String, GlobalSymbol>,
+    is_static: bool,
+) -> Vec<String> {
+    if !is_static {
+        return Vec::new();
+    }
+    let mut ifunc_symbols: Vec<String> = globals
+        .iter()
         .filter(|(_, g)| g.defined_in.is_some() && (g.info & 0xf) == STT_GNU_IFUNC)
         .map(|(n, _)| n.clone())
         .collect();
@@ -19,7 +25,8 @@ pub(super) fn collect_ifunc_symbols(globals: &HashMap<String, GlobalSymbol>, is_
 }
 
 pub(super) fn create_plt_got(
-    objects: &[ElfObject], globals: &mut HashMap<String, GlobalSymbol>,
+    objects: &[ElfObject],
+    globals: &mut HashMap<String, GlobalSymbol>,
 ) -> (Vec<String>, Vec<(String, bool)>) {
     let mut plt_names: Vec<String> = Vec::new();
     let mut got_only_names: Vec<String> = Vec::new();
@@ -29,9 +36,13 @@ pub(super) fn create_plt_got(
         for sec_idx in 0..obj.sections.len() {
             for rela in &obj.relocations[sec_idx] {
                 let si = rela.sym_idx as usize;
-                if si >= obj.symbols.len() { continue; }
+                if si >= obj.symbols.len() {
+                    continue;
+                }
                 let sym = &obj.symbols[si];
-                if sym.name.is_empty() || sym.is_local() { continue; }
+                if sym.name.is_empty() || sym.is_local() {
+                    continue;
+                }
                 let gsym_info = globals.get(&sym.name).map(|g| (g.is_dynamic, g.info & 0xf));
 
                 match rela.rela_type {
@@ -44,7 +55,9 @@ pub(super) fn create_plt_got(
                             }
                         } else {
                             // Dynamic function symbol - needs PLT
-                            if !plt_names.contains(&sym.name) { plt_names.push(sym.name.clone()); }
+                            if !plt_names.contains(&sym.name) {
+                                plt_names.push(sym.name.clone());
+                            }
                         }
                     }
                     R_X86_64_GOTPCREL | R_X86_64_GOTPCRELX | R_X86_64_REX_GOTPCRELX => {
@@ -67,8 +80,12 @@ pub(super) fn create_plt_got(
                         let sym_type = gsym_info.map(|g| g.1).unwrap_or(0);
                         if sym_type != STT_OBJECT && rela.rela_type == R_X86_64_64 {
                             // R_X86_64_64 for dynamic function (e.g. function pointer init) needs PLT
-                            if !plt_names.contains(&sym.name) { plt_names.push(sym.name.clone()); }
-                        } else if !plt_names.contains(&sym.name) && !got_only_names.contains(&sym.name) {
+                            if !plt_names.contains(&sym.name) {
+                                plt_names.push(sym.name.clone());
+                            }
+                        } else if !plt_names.contains(&sym.name)
+                            && !got_only_names.contains(&sym.name)
+                        {
                             got_only_names.push(sym.name.clone());
                         }
                     }
@@ -98,13 +115,17 @@ pub(super) fn create_plt_got(
     }
     // Also mark aliases (other dynamic STT_OBJECT symbols at the same library address)
     if !copy_reloc_lib_addrs.is_empty() {
-        let alias_names: Vec<String> = globals.iter()
+        let alias_names: Vec<String> = globals
+            .iter()
             .filter(|(name, g)| {
-                g.is_dynamic && !g.copy_reloc && (g.info & 0xf) == STT_OBJECT
+                g.is_dynamic
+                    && !g.copy_reloc
+                    && (g.info & 0xf) == STT_OBJECT
                     && !copy_reloc_names.contains(name)
-                    && g.from_lib.is_some() && g.lib_sym_value != 0
-                    && copy_reloc_lib_addrs.contains(
-                        &(g.from_lib.as_ref().unwrap().clone(), g.lib_sym_value))
+                    && g.from_lib.is_some()
+                    && g.lib_sym_value != 0
+                    && copy_reloc_lib_addrs
+                        .contains(&(g.from_lib.as_ref().unwrap().clone(), g.lib_sym_value))
             })
             .map(|(n, _)| n.clone())
             .collect();

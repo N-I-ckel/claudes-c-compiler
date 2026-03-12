@@ -10,9 +10,9 @@
 //! - `classify_args_core`: single implementation of the classification algorithm
 //! - `classify_call_args` / `classify_params_full`: thin wrappers over the core
 
-use crate::ir::reexports::{IrConst, IrFunction, Operand};
-use crate::common::types::IrType;
 use super::generation::is_i128_type;
+use crate::common::types::IrType;
+use crate::ir::reexports::{IrConst, IrFunction, Operand};
 
 // ---------------------------------------------------------------------------
 // CallArgClass — caller-side classification (used by emit_call_*)
@@ -34,11 +34,23 @@ pub enum CallArgClass {
     /// Small struct (<=16 bytes) where all fields are float/double (SSE class per SysV ABI).
     /// Passed in 1-2 XMM registers instead of GP registers.
     /// `lo_fp_idx` is the FP register for the first eightbyte, `hi_fp_idx` for the second (if size > 8).
-    StructSseReg { lo_fp_idx: usize, hi_fp_idx: Option<usize>, size: usize },
+    StructSseReg {
+        lo_fp_idx: usize,
+        hi_fp_idx: Option<usize>,
+        size: usize,
+    },
     /// Small struct where first eightbyte is INTEGER and second is SSE (mixed).
-    StructMixedIntSseReg { int_reg_idx: usize, fp_reg_idx: usize, size: usize },
+    StructMixedIntSseReg {
+        int_reg_idx: usize,
+        fp_reg_idx: usize,
+        size: usize,
+    },
     /// Small struct where first eightbyte is SSE and second is INTEGER (mixed).
-    StructMixedSseIntReg { fp_reg_idx: usize, int_reg_idx: usize, size: usize },
+    StructMixedSseIntReg {
+        fp_reg_idx: usize,
+        int_reg_idx: usize,
+        size: usize,
+    },
     /// Small struct (<=16 bytes) that overflows to the stack.
     StructByValStack { size: usize },
     /// Small struct split across the last GP register and the stack.
@@ -60,10 +72,15 @@ pub enum CallArgClass {
 impl CallArgClass {
     /// Returns true if this argument is passed on the stack (any kind).
     pub fn is_stack(&self) -> bool {
-        matches!(self, CallArgClass::Stack | CallArgClass::F128Stack |
-                 CallArgClass::I128Stack | CallArgClass::StructByValStack { .. } |
-                 CallArgClass::LargeStructStack { .. } |
-                 CallArgClass::StructSplitRegStack { .. })
+        matches!(
+            self,
+            CallArgClass::Stack
+                | CallArgClass::F128Stack
+                | CallArgClass::I128Stack
+                | CallArgClass::StructByValStack { .. }
+                | CallArgClass::LargeStructStack { .. }
+                | CallArgClass::StructSplitRegStack { .. }
+        )
     }
 
     /// Returns the stack space consumed by this argument (0 if register).
@@ -71,7 +88,13 @@ impl CallArgClass {
         let slot_size = crate::common::types::target_ptr_size(); // 8 for LP64, 4 for ILP32
         let align_mask = slot_size - 1;
         match self {
-            CallArgClass::F128Stack => if slot_size == 4 { 12 } else { 16 }, // i686: x87 long double = 12 bytes
+            CallArgClass::F128Stack => {
+                if slot_size == 4 {
+                    12
+                } else {
+                    16
+                }
+            } // i686: x87 long double = 12 bytes
             CallArgClass::I128Stack => 16,
             CallArgClass::StructByValStack { size } | CallArgClass::LargeStructStack { size } => {
                 (*size + align_mask) & !align_mask
@@ -107,19 +130,34 @@ pub enum ParamClass {
     /// Small struct (<=16 bytes) by value in 1-2 GP registers.
     StructByValReg { base_reg_idx: usize, size: usize },
     /// Small struct where all eightbytes are SSE class -> 1-2 XMM registers.
-    StructSseReg { lo_fp_idx: usize, hi_fp_idx: Option<usize>, size: usize },
+    StructSseReg {
+        lo_fp_idx: usize,
+        hi_fp_idx: Option<usize>,
+        size: usize,
+    },
     /// Small struct: first eightbyte INTEGER, second SSE.
     /// (`size` mirrors `CallArgClass`/`CoreArgClass` for structural consistency.)
     #[allow(dead_code)] // size field not yet read by any backend
-    StructMixedIntSseReg { int_reg_idx: usize, fp_reg_idx: usize, size: usize },
+    StructMixedIntSseReg {
+        int_reg_idx: usize,
+        fp_reg_idx: usize,
+        size: usize,
+    },
     /// Small struct: first eightbyte SSE, second INTEGER.
     /// (`size` mirrors `CallArgClass`/`CoreArgClass` for structural consistency.)
     #[allow(dead_code)] // size field not yet read by any backend
-    StructMixedSseIntReg { fp_reg_idx: usize, int_reg_idx: usize, size: usize },
+    StructMixedSseIntReg {
+        fp_reg_idx: usize,
+        int_reg_idx: usize,
+        size: usize,
+    },
     /// F128 (long double) in FP register (ARM: Q-reg).
     F128FpReg { reg_idx: usize },
     /// F128 in GP register pair (RISC-V).
-    F128GpPair { lo_reg_idx: usize, hi_reg_idx: usize },
+    F128GpPair {
+        lo_reg_idx: usize,
+        hi_reg_idx: usize,
+    },
     /// F128 always on stack (x86: x87 convention).
     F128AlwaysStack { offset: i64 },
     /// Regular scalar on the stack.
@@ -132,7 +170,11 @@ pub enum ParamClass {
     StructStack { offset: i64, size: usize },
     /// Small struct split across the last GP register and the stack.
     /// RISC-V psABI: first XLEN bytes in `reg_idx`, remaining bytes at `stack_offset`.
-    StructSplitRegStack { reg_idx: usize, stack_offset: i64, size: usize },
+    StructSplitRegStack {
+        reg_idx: usize,
+        stack_offset: i64,
+        size: usize,
+    },
     /// Large struct (>16 bytes) passed on the stack.
     LargeStructStack { offset: i64, size: usize },
     /// Large struct (>16 bytes) passed by reference in a GP register (AAPCS64).
@@ -149,23 +191,31 @@ pub enum ParamClass {
 impl ParamClass {
     /// Returns true if this parameter is passed on the stack (fully or partially).
     pub fn is_stack(&self) -> bool {
-        matches!(self,
-            ParamClass::StackScalar { .. } | ParamClass::I128Stack { .. } |
-            ParamClass::F128Stack { .. } | ParamClass::F128AlwaysStack { .. } |
-            ParamClass::StructStack { .. } | ParamClass::LargeStructStack { .. } |
-            ParamClass::LargeStructByRefStack { .. } |
-            ParamClass::StructSplitRegStack { .. }
+        matches!(
+            self,
+            ParamClass::StackScalar { .. }
+                | ParamClass::I128Stack { .. }
+                | ParamClass::F128Stack { .. }
+                | ParamClass::F128AlwaysStack { .. }
+                | ParamClass::StructStack { .. }
+                | ParamClass::LargeStructStack { .. }
+                | ParamClass::LargeStructByRefStack { .. }
+                | ParamClass::StructSplitRegStack { .. }
         )
     }
 
     /// Returns true if this parameter arrives in a GP register (int, i128 pair, struct, or F128 GP pair).
     pub fn uses_gp_reg(&self) -> bool {
-        matches!(self,
-            ParamClass::IntReg { .. } | ParamClass::I128RegPair { .. } |
-            ParamClass::StructByValReg { .. } | ParamClass::F128GpPair { .. } |
-            ParamClass::LargeStructByRefReg { .. } |
-            ParamClass::StructMixedIntSseReg { .. } | ParamClass::StructMixedSseIntReg { .. } |
-            ParamClass::StructSplitRegStack { .. }
+        matches!(
+            self,
+            ParamClass::IntReg { .. }
+                | ParamClass::I128RegPair { .. }
+                | ParamClass::StructByValReg { .. }
+                | ParamClass::F128GpPair { .. }
+                | ParamClass::LargeStructByRefReg { .. }
+                | ParamClass::StructMixedIntSseReg { .. }
+                | ParamClass::StructMixedSseIntReg { .. }
+                | ParamClass::StructSplitRegStack { .. }
         )
     }
 
@@ -179,7 +229,13 @@ impl ParamClass {
             ParamClass::StackScalar { .. } => slot_size,
             ParamClass::I128Stack { .. } => 16,
             ParamClass::F128Stack { .. } => 16,
-            ParamClass::F128AlwaysStack { .. } => if slot_size == 4 { 12 } else { 16 },
+            ParamClass::F128AlwaysStack { .. } => {
+                if slot_size == 4 {
+                    12
+                } else {
+                    16
+                }
+            }
             ParamClass::StructStack { size, .. } => (*size + align_mask) & !align_mask,
             ParamClass::StructSplitRegStack { size, .. } => {
                 // Only the portion beyond the first register goes on the stack.
@@ -201,13 +257,17 @@ impl ParamClass {
             ParamClass::I128RegPair { .. } => 2,
             ParamClass::StructByValReg { size, .. } => {
                 // 1 reg for <=8 bytes, 2 regs for >8 bytes (up to 16)
-                if *size <= 8 { 1 } else { 2 }
+                if *size <= 8 {
+                    1
+                } else {
+                    2
+                }
             }
             ParamClass::F128GpPair { .. } => 2,
             ParamClass::StructMixedIntSseReg { .. } | ParamClass::StructMixedSseIntReg { .. } => 1,
             ParamClass::StructSplitRegStack { .. } => 1, // only 1 GP reg used (the rest on stack)
-            ParamClass::StructSseReg { .. } => 0, // all SSE, no GP regs
-            _ => 0, // FP regs and stack don't consume GP regs
+            ParamClass::StructSseReg { .. } => 0,        // all SSE, no GP regs
+            _ => 0,                                      // FP regs and stack don't consume GP regs
         }
     }
 }
@@ -288,12 +348,20 @@ pub fn classify_sysv_struct(
     use crate::common::types::EightbyteClass;
     let n_eightbytes = eb_classes.len();
     let eb0_is_sse = eb_classes.first() == Some(&EightbyteClass::Sse);
-    let eb1_is_sse = if n_eightbytes > 1 { eb_classes.get(1) == Some(&EightbyteClass::Sse) } else { false };
+    let eb1_is_sse = if n_eightbytes > 1 {
+        eb_classes.get(1) == Some(&EightbyteClass::Sse)
+    } else {
+        false
+    };
 
     let gp_needed = (if !eb0_is_sse { 1 } else { 0 })
-        + (if n_eightbytes > 1 && !eb1_is_sse { 1 } else { 0 });
-    let fp_needed = (if eb0_is_sse { 1 } else { 0 })
-        + (if n_eightbytes > 1 && eb1_is_sse { 1 } else { 0 });
+        + (if n_eightbytes > 1 && !eb1_is_sse {
+            1
+        } else {
+            0
+        });
+    let fp_needed =
+        (if eb0_is_sse { 1 } else { 0 }) + (if n_eightbytes > 1 && eb1_is_sse { 1 } else { 0 });
 
     if int_idx + gp_needed > config.max_int_regs || float_idx + fp_needed > config.max_float_regs {
         return (SysvStructRegClass::Stack, 0, 0);
@@ -348,21 +416,58 @@ pub(crate) struct ArgInfo<'a> {
 /// by the callee-side wrapper (`classify_params_full`).
 #[derive(Debug, Clone, Copy)]
 enum CoreArgClass {
-    IntReg { reg_idx: usize },
-    FloatReg { reg_idx: usize },
-    I128RegPair { base_reg_idx: usize },
-    F128FpReg { reg_idx: usize },
-    F128GpPair { base_reg_idx: usize },
+    IntReg {
+        reg_idx: usize,
+    },
+    FloatReg {
+        reg_idx: usize,
+    },
+    I128RegPair {
+        base_reg_idx: usize,
+    },
+    F128FpReg {
+        reg_idx: usize,
+    },
+    F128GpPair {
+        base_reg_idx: usize,
+    },
     F128Stack,
-    StructByValReg { base_reg_idx: usize, size: usize },
-    StructSseReg { lo_fp_idx: usize, hi_fp_idx: Option<usize>, size: usize },
-    StructMixedIntSseReg { int_reg_idx: usize, fp_reg_idx: usize, size: usize },
-    StructMixedSseIntReg { fp_reg_idx: usize, int_reg_idx: usize, size: usize },
-    StructByValStack { size: usize },
-    StructSplitRegStack { reg_idx: usize, size: usize },
-    LargeStructStack { size: usize },
-    LargeStructByRefReg { reg_idx: usize, size: usize },
-    LargeStructByRefStack { size: usize },
+    StructByValReg {
+        base_reg_idx: usize,
+        size: usize,
+    },
+    StructSseReg {
+        lo_fp_idx: usize,
+        hi_fp_idx: Option<usize>,
+        size: usize,
+    },
+    StructMixedIntSseReg {
+        int_reg_idx: usize,
+        fp_reg_idx: usize,
+        size: usize,
+    },
+    StructMixedSseIntReg {
+        fp_reg_idx: usize,
+        int_reg_idx: usize,
+        size: usize,
+    },
+    StructByValStack {
+        size: usize,
+    },
+    StructSplitRegStack {
+        reg_idx: usize,
+        size: usize,
+    },
+    LargeStructStack {
+        size: usize,
+    },
+    LargeStructByRefReg {
+        reg_idx: usize,
+        size: usize,
+    },
+    LargeStructByRefStack {
+        size: usize,
+    },
     Stack,
     I128Stack,
     ZeroSizeSkip,
@@ -392,7 +497,8 @@ fn classify_args_core(
     let slot_size = crate::common::types::target_ptr_size();
 
     for info in args {
-        let force_gp = is_variadic && config.variadic_floats_in_gp && info.is_float && !info.is_long_double;
+        let force_gp =
+            is_variadic && config.variadic_floats_in_gp && info.is_float && !info.is_long_double;
 
         if let Some(size) = info.struct_size {
             // Zero-size structs consume no register or stack space per GCC behavior.
@@ -405,20 +511,40 @@ fn classify_args_core(
 
             if size <= 16 && config.use_sysv_struct_classification && !eb_classes.is_empty() {
                 // SysV AMD64 ABI: classify per-eightbyte and assign to GP or SSE registers
-                let (cls, gp_used, fp_used) = classify_sysv_struct(eb_classes, int_idx, float_idx, config);
+                let (cls, gp_used, fp_used) =
+                    classify_sysv_struct(eb_classes, int_idx, float_idx, config);
                 match cls {
                     SysvStructRegClass::AllSse { fp_count } => {
-                        let hi = if fp_count > 1 { Some(float_idx + 1) } else { None };
-                        result.push(CoreArgClass::StructSseReg { lo_fp_idx: float_idx, hi_fp_idx: hi, size });
+                        let hi = if fp_count > 1 {
+                            Some(float_idx + 1)
+                        } else {
+                            None
+                        };
+                        result.push(CoreArgClass::StructSseReg {
+                            lo_fp_idx: float_idx,
+                            hi_fp_idx: hi,
+                            size,
+                        });
                     }
                     SysvStructRegClass::AllInt => {
-                        result.push(CoreArgClass::StructByValReg { base_reg_idx: int_idx, size });
+                        result.push(CoreArgClass::StructByValReg {
+                            base_reg_idx: int_idx,
+                            size,
+                        });
                     }
                     SysvStructRegClass::IntSse => {
-                        result.push(CoreArgClass::StructMixedIntSseReg { int_reg_idx: int_idx, fp_reg_idx: float_idx, size });
+                        result.push(CoreArgClass::StructMixedIntSseReg {
+                            int_reg_idx: int_idx,
+                            fp_reg_idx: float_idx,
+                            size,
+                        });
                     }
                     SysvStructRegClass::SseInt => {
-                        result.push(CoreArgClass::StructMixedSseIntReg { fp_reg_idx: float_idx, int_reg_idx: int_idx, size });
+                        result.push(CoreArgClass::StructMixedSseIntReg {
+                            fp_reg_idx: float_idx,
+                            int_reg_idx: int_idx,
+                            size,
+                        });
                     }
                     SysvStructRegClass::Stack => {
                         result.push(CoreArgClass::StructByValStack { size });
@@ -440,21 +566,33 @@ fn classify_args_core(
                     match rv_fc {
                         RiscvFloatClass::OneFloat { .. } => {
                             if float_idx < config.max_float_regs {
-                                result.push(CoreArgClass::StructSseReg { lo_fp_idx: float_idx, hi_fp_idx: None, size });
+                                result.push(CoreArgClass::StructSseReg {
+                                    lo_fp_idx: float_idx,
+                                    hi_fp_idx: None,
+                                    size,
+                                });
                                 float_idx += 1;
                                 classified = true;
                             }
                         }
                         RiscvFloatClass::TwoFloats { .. } => {
                             if float_idx + 1 < config.max_float_regs {
-                                result.push(CoreArgClass::StructSseReg { lo_fp_idx: float_idx, hi_fp_idx: Some(float_idx + 1), size });
+                                result.push(CoreArgClass::StructSseReg {
+                                    lo_fp_idx: float_idx,
+                                    hi_fp_idx: Some(float_idx + 1),
+                                    size,
+                                });
                                 float_idx += 2;
                                 classified = true;
                             }
                         }
                         RiscvFloatClass::FloatAndInt { .. } => {
                             if float_idx < config.max_float_regs && int_idx < config.max_int_regs {
-                                result.push(CoreArgClass::StructMixedSseIntReg { fp_reg_idx: float_idx, int_reg_idx: int_idx, size });
+                                result.push(CoreArgClass::StructMixedSseIntReg {
+                                    fp_reg_idx: float_idx,
+                                    int_reg_idx: int_idx,
+                                    size,
+                                });
                                 float_idx += 1;
                                 int_idx += 1;
                                 classified = true;
@@ -462,7 +600,11 @@ fn classify_args_core(
                         }
                         RiscvFloatClass::IntAndFloat { .. } => {
                             if int_idx < config.max_int_regs && float_idx < config.max_float_regs {
-                                result.push(CoreArgClass::StructMixedIntSseReg { int_reg_idx: int_idx, fp_reg_idx: float_idx, size });
+                                result.push(CoreArgClass::StructMixedIntSseReg {
+                                    int_reg_idx: int_idx,
+                                    fp_reg_idx: float_idx,
+                                    size,
+                                });
                                 int_idx += 1;
                                 float_idx += 1;
                                 classified = true;
@@ -471,7 +613,11 @@ fn classify_args_core(
                     }
                 }
                 if !classified {
-                    let regs_needed = if size <= slot_size { 1 } else { size.div_ceil(slot_size) };
+                    let regs_needed = if size <= slot_size {
+                        1
+                    } else {
+                        size.div_ceil(slot_size)
+                    };
                     // RISC-V psABI: 2×XLEN-aligned structs must start at even register.
                     // Note: ARM AAPCS64 does NOT require even-aligned pairs for composites.
                     if regs_needed == 2 && config.align_struct_pairs {
@@ -481,10 +627,19 @@ fn classify_args_core(
                         }
                     }
                     if int_idx + regs_needed <= config.max_int_regs {
-                        result.push(CoreArgClass::StructByValReg { base_reg_idx: int_idx, size });
+                        result.push(CoreArgClass::StructByValReg {
+                            base_reg_idx: int_idx,
+                            size,
+                        });
                         int_idx += regs_needed;
-                    } else if regs_needed == 2 && int_idx < config.max_int_regs && config.allow_struct_split_reg_stack {
-                        result.push(CoreArgClass::StructSplitRegStack { reg_idx: int_idx, size });
+                    } else if regs_needed == 2
+                        && int_idx < config.max_int_regs
+                        && config.allow_struct_split_reg_stack
+                    {
+                        result.push(CoreArgClass::StructSplitRegStack {
+                            reg_idx: int_idx,
+                            size,
+                        });
                         int_idx = config.max_int_regs;
                     } else {
                         result.push(CoreArgClass::StructByValStack { size });
@@ -494,7 +649,10 @@ fn classify_args_core(
             } else if config.large_struct_by_ref {
                 // AAPCS64 / RISC-V: large composites passed by reference.
                 if int_idx < config.max_int_regs {
-                    result.push(CoreArgClass::LargeStructByRefReg { reg_idx: int_idx, size });
+                    result.push(CoreArgClass::LargeStructByRefReg {
+                        reg_idx: int_idx,
+                        size,
+                    });
                     int_idx += 1;
                 } else {
                     result.push(CoreArgClass::LargeStructByRefStack { size });
@@ -507,7 +665,9 @@ fn classify_args_core(
                 int_idx += 1;
             }
             if int_idx + 1 < config.max_int_regs {
-                result.push(CoreArgClass::I128RegPair { base_reg_idx: int_idx });
+                result.push(CoreArgClass::I128RegPair {
+                    base_reg_idx: int_idx,
+                });
                 int_idx += 2;
             } else {
                 result.push(CoreArgClass::I128Stack);
@@ -526,7 +686,9 @@ fn classify_args_core(
                     int_idx += 1;
                 }
                 if int_idx + 1 < config.max_int_regs {
-                    result.push(CoreArgClass::F128GpPair { base_reg_idx: int_idx });
+                    result.push(CoreArgClass::F128GpPair {
+                        base_reg_idx: int_idx,
+                    });
                     int_idx += 2;
                 } else {
                     result.push(CoreArgClass::F128Stack);
@@ -548,7 +710,10 @@ fn classify_args_core(
         }
     }
 
-    CoreClassification { classes: result, int_reg_idx: int_idx }
+    CoreClassification {
+        classes: result,
+        int_reg_idx: int_idx,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -575,47 +740,94 @@ pub fn classify_call_args(
     config: &CallAbiConfig,
 ) -> Vec<CallArgClass> {
     // Build ArgInfo slice from call-site arrays.
-    let arg_infos: Vec<ArgInfo<'_>> = args.iter().enumerate().map(|(i, arg)| {
-        let arg_ty = if i < arg_types.len() { Some(arg_types[i]) } else { None };
-        ArgInfo {
-            is_float: if let Some(ty) = arg_ty {
-                ty.is_float()
+    let arg_infos: Vec<ArgInfo<'_>> = args
+        .iter()
+        .enumerate()
+        .map(|(i, arg)| {
+            let arg_ty = if i < arg_types.len() {
+                Some(arg_types[i])
             } else {
-                matches!(arg, Operand::Const(IrConst::F32(_) | IrConst::F64(_)))
-            },
-            is_i128: arg_ty.map(is_i128_type).unwrap_or(false),
-            is_long_double: arg_ty.map(|t| t.is_long_double()).unwrap_or(false),
-            struct_size: struct_arg_sizes.get(i).copied().flatten(),
-            struct_align: struct_arg_aligns.get(i).copied().flatten(),
-            eightbyte_classes: struct_arg_classes.get(i).map(|v| v.as_slice()).unwrap_or(&[]),
-            riscv_float_class: struct_arg_riscv_float_classes.get(i).copied().flatten(),
-        }
-    }).collect();
+                None
+            };
+            ArgInfo {
+                is_float: if let Some(ty) = arg_ty {
+                    ty.is_float()
+                } else {
+                    matches!(arg, Operand::Const(IrConst::F32(_) | IrConst::F64(_)))
+                },
+                is_i128: arg_ty.map(is_i128_type).unwrap_or(false),
+                is_long_double: arg_ty.map(|t| t.is_long_double()).unwrap_or(false),
+                struct_size: struct_arg_sizes.get(i).copied().flatten(),
+                struct_align: struct_arg_aligns.get(i).copied().flatten(),
+                eightbyte_classes: struct_arg_classes
+                    .get(i)
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]),
+                riscv_float_class: struct_arg_riscv_float_classes.get(i).copied().flatten(),
+            }
+        })
+        .collect();
 
     let core = classify_args_core(&arg_infos, is_variadic, config);
 
     // Convert CoreArgClass -> CallArgClass (drop by-ref variants that only appear
     // when large_struct_by_ref is true, which maps to IntReg/Stack on the caller side).
-    core.classes.into_iter().map(|c| match c {
-        CoreArgClass::IntReg { reg_idx } => CallArgClass::IntReg { reg_idx },
-        CoreArgClass::FloatReg { reg_idx } => CallArgClass::FloatReg { reg_idx },
-        CoreArgClass::I128RegPair { base_reg_idx } => CallArgClass::I128RegPair { base_reg_idx },
-        CoreArgClass::F128FpReg { reg_idx } | CoreArgClass::F128GpPair { base_reg_idx: reg_idx } => CallArgClass::F128Reg { reg_idx },
-        CoreArgClass::F128Stack => CallArgClass::F128Stack,
-        CoreArgClass::StructByValReg { base_reg_idx, size } => CallArgClass::StructByValReg { base_reg_idx, size },
-        CoreArgClass::StructSseReg { lo_fp_idx, hi_fp_idx, size } => CallArgClass::StructSseReg { lo_fp_idx, hi_fp_idx, size },
-        CoreArgClass::StructMixedIntSseReg { int_reg_idx, fp_reg_idx, size } => CallArgClass::StructMixedIntSseReg { int_reg_idx, fp_reg_idx, size },
-        CoreArgClass::StructMixedSseIntReg { fp_reg_idx, int_reg_idx, size } => CallArgClass::StructMixedSseIntReg { fp_reg_idx, int_reg_idx, size },
-        CoreArgClass::StructByValStack { size } => CallArgClass::StructByValStack { size },
-        CoreArgClass::StructSplitRegStack { reg_idx, size } => CallArgClass::StructSplitRegStack { reg_idx, size },
-        CoreArgClass::LargeStructStack { size } => CallArgClass::LargeStructStack { size },
-        // On caller side, large-struct-by-ref uses IntReg (pointer) or Stack (pointer overflow).
-        CoreArgClass::LargeStructByRefReg { reg_idx, .. } => CallArgClass::IntReg { reg_idx },
-        CoreArgClass::LargeStructByRefStack { .. } => CallArgClass::Stack,
-        CoreArgClass::Stack => CallArgClass::Stack,
-        CoreArgClass::I128Stack => CallArgClass::I128Stack,
-        CoreArgClass::ZeroSizeSkip => CallArgClass::ZeroSizeSkip,
-    }).collect()
+    core.classes
+        .into_iter()
+        .map(|c| match c {
+            CoreArgClass::IntReg { reg_idx } => CallArgClass::IntReg { reg_idx },
+            CoreArgClass::FloatReg { reg_idx } => CallArgClass::FloatReg { reg_idx },
+            CoreArgClass::I128RegPair { base_reg_idx } => {
+                CallArgClass::I128RegPair { base_reg_idx }
+            }
+            CoreArgClass::F128FpReg { reg_idx }
+            | CoreArgClass::F128GpPair {
+                base_reg_idx: reg_idx,
+            } => CallArgClass::F128Reg { reg_idx },
+            CoreArgClass::F128Stack => CallArgClass::F128Stack,
+            CoreArgClass::StructByValReg { base_reg_idx, size } => {
+                CallArgClass::StructByValReg { base_reg_idx, size }
+            }
+            CoreArgClass::StructSseReg {
+                lo_fp_idx,
+                hi_fp_idx,
+                size,
+            } => CallArgClass::StructSseReg {
+                lo_fp_idx,
+                hi_fp_idx,
+                size,
+            },
+            CoreArgClass::StructMixedIntSseReg {
+                int_reg_idx,
+                fp_reg_idx,
+                size,
+            } => CallArgClass::StructMixedIntSseReg {
+                int_reg_idx,
+                fp_reg_idx,
+                size,
+            },
+            CoreArgClass::StructMixedSseIntReg {
+                fp_reg_idx,
+                int_reg_idx,
+                size,
+            } => CallArgClass::StructMixedSseIntReg {
+                fp_reg_idx,
+                int_reg_idx,
+                size,
+            },
+            CoreArgClass::StructByValStack { size } => CallArgClass::StructByValStack { size },
+            CoreArgClass::StructSplitRegStack { reg_idx, size } => {
+                CallArgClass::StructSplitRegStack { reg_idx, size }
+            }
+            CoreArgClass::LargeStructStack { size } => CallArgClass::LargeStructStack { size },
+            // On caller side, large-struct-by-ref uses IntReg (pointer) or Stack (pointer overflow).
+            CoreArgClass::LargeStructByRefReg { reg_idx, .. } => CallArgClass::IntReg { reg_idx },
+            CoreArgClass::LargeStructByRefStack { .. } => CallArgClass::Stack,
+            CoreArgClass::Stack => CallArgClass::Stack,
+            CoreArgClass::I128Stack => CallArgClass::I128Stack,
+            CoreArgClass::ZeroSizeSkip => CallArgClass::ZeroSizeSkip,
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -644,8 +856,10 @@ pub struct ParamClassification {
 /// register allocation state.
 pub fn classify_params_full(func: &IrFunction, config: &CallAbiConfig) -> ParamClassification {
     // Build ArgInfo slice from function parameters.
-    let arg_infos: Vec<ArgInfo<'_>> = func.params.iter().map(|param| {
-        ArgInfo {
+    let arg_infos: Vec<ArgInfo<'_>> = func
+        .params
+        .iter()
+        .map(|param| ArgInfo {
             is_float: param.ty.is_float(),
             is_i128: is_i128_type(param.ty),
             is_long_double: param.ty.is_long_double(),
@@ -653,8 +867,8 @@ pub fn classify_params_full(func: &IrFunction, config: &CallAbiConfig) -> ParamC
             struct_align: param.struct_align,
             eightbyte_classes: &param.struct_eightbyte_classes,
             riscv_float_class: param.riscv_float_class,
-        }
-    }).collect();
+        })
+        .collect();
 
     // Pass is_variadic=true here because the callee side encodes variadic behavior
     // directly in config.variadic_floats_in_gp (set by the caller based on func.is_variadic).
@@ -688,7 +902,10 @@ pub fn classify_params_full(func: &IrFunction, config: &CallAbiConfig) -> ParamC
                     }
                 }
                 CoreArgClass::StructByValStack { size } if size <= 8 => {
-                    core.classes[i] = CoreArgClass::StructByValReg { base_reg_idx: freed_reg, size };
+                    core.classes[i] = CoreArgClass::StructByValReg {
+                        base_reg_idx: freed_reg,
+                        size,
+                    };
                     break;
                 }
                 _ => {}
@@ -708,13 +925,44 @@ pub fn classify_params_full(func: &IrFunction, config: &CallAbiConfig) -> ParamC
             CoreArgClass::IntReg { reg_idx } => ParamClass::IntReg { reg_idx },
             CoreArgClass::FloatReg { reg_idx } => ParamClass::FloatReg { reg_idx },
             CoreArgClass::I128RegPair { base_reg_idx } => ParamClass::I128RegPair { base_reg_idx },
-            CoreArgClass::StructByValReg { base_reg_idx, size } => ParamClass::StructByValReg { base_reg_idx, size },
-            CoreArgClass::StructSseReg { lo_fp_idx, hi_fp_idx, size } => ParamClass::StructSseReg { lo_fp_idx, hi_fp_idx, size },
-            CoreArgClass::StructMixedIntSseReg { int_reg_idx, fp_reg_idx, size } => ParamClass::StructMixedIntSseReg { int_reg_idx, fp_reg_idx, size },
-            CoreArgClass::StructMixedSseIntReg { fp_reg_idx, int_reg_idx, size } => ParamClass::StructMixedSseIntReg { fp_reg_idx, int_reg_idx, size },
+            CoreArgClass::StructByValReg { base_reg_idx, size } => {
+                ParamClass::StructByValReg { base_reg_idx, size }
+            }
+            CoreArgClass::StructSseReg {
+                lo_fp_idx,
+                hi_fp_idx,
+                size,
+            } => ParamClass::StructSseReg {
+                lo_fp_idx,
+                hi_fp_idx,
+                size,
+            },
+            CoreArgClass::StructMixedIntSseReg {
+                int_reg_idx,
+                fp_reg_idx,
+                size,
+            } => ParamClass::StructMixedIntSseReg {
+                int_reg_idx,
+                fp_reg_idx,
+                size,
+            },
+            CoreArgClass::StructMixedSseIntReg {
+                fp_reg_idx,
+                int_reg_idx,
+                size,
+            } => ParamClass::StructMixedSseIntReg {
+                fp_reg_idx,
+                int_reg_idx,
+                size,
+            },
             CoreArgClass::F128FpReg { reg_idx } => ParamClass::F128FpReg { reg_idx },
-            CoreArgClass::F128GpPair { base_reg_idx } => ParamClass::F128GpPair { lo_reg_idx: base_reg_idx, hi_reg_idx: base_reg_idx + 1 },
-            CoreArgClass::LargeStructByRefReg { reg_idx, size } => ParamClass::LargeStructByRefReg { reg_idx, size },
+            CoreArgClass::F128GpPair { base_reg_idx } => ParamClass::F128GpPair {
+                lo_reg_idx: base_reg_idx,
+                hi_reg_idx: base_reg_idx + 1,
+            },
+            CoreArgClass::LargeStructByRefReg { reg_idx, size } => {
+                ParamClass::LargeStructByRefReg { reg_idx, size }
+            }
             CoreArgClass::ZeroSizeSkip => ParamClass::ZeroSizeSkip,
 
             // Stack-overflow cases: assign offsets
@@ -757,7 +1005,11 @@ pub fn classify_params_full(func: &IrFunction, config: &CallAbiConfig) -> ParamC
                 let off = stack_offset;
                 let stack_part = size - slot_size;
                 stack_offset += (stack_part as i64 + slot_align_mask) & !slot_align_mask;
-                ParamClass::StructSplitRegStack { reg_idx, stack_offset: off, size }
+                ParamClass::StructSplitRegStack {
+                    reg_idx,
+                    stack_offset: off,
+                    size,
+                }
             }
             CoreArgClass::LargeStructByRefStack { size } => {
                 let off = stack_offset;
@@ -777,7 +1029,9 @@ pub fn classify_params_full(func: &IrFunction, config: &CallAbiConfig) -> ParamC
                     }
                 } else {
                     // GP register overflow
-                    let param_size = param_ty.map(|t| t.size() as i64).unwrap_or(slot_size as i64);
+                    let param_size = param_ty
+                        .map(|t| t.size() as i64)
+                        .unwrap_or(slot_size as i64);
                     stack_offset += (param_size + slot_align_mask) & !slot_align_mask;
                 }
                 ParamClass::StackScalar { offset: off }
@@ -810,7 +1064,12 @@ pub fn named_params_stack_bytes(param_classes: &[ParamClass]) -> usize {
     let mut total: usize = 0;
     for class in param_classes {
         // Align for 16-byte types before adding their size
-        if matches!(class, ParamClass::F128Stack { .. } | ParamClass::I128Stack { .. } | ParamClass::F128AlwaysStack { .. }) {
+        if matches!(
+            class,
+            ParamClass::F128Stack { .. }
+                | ParamClass::I128Stack { .. }
+                | ParamClass::F128AlwaysStack { .. }
+        ) {
             total = (total + 15) & !15;
         }
         total += class.stack_bytes();
@@ -828,7 +1087,9 @@ pub fn named_params_stack_bytes(param_classes: &[ParamClass]) -> usize {
 pub fn compute_stack_arg_space(arg_classes: &[CallArgClass]) -> usize {
     let mut total: usize = 0;
     for cls in arg_classes {
-        if !cls.is_stack() { continue; }
+        if !cls.is_stack() {
+            continue;
+        }
         if matches!(cls, CallArgClass::F128Stack | CallArgClass::I128Stack) {
             total = (total + 15) & !15;
         }
@@ -844,7 +1105,9 @@ pub fn compute_stack_arg_padding(arg_classes: &[CallArgClass]) -> Vec<usize> {
     let mut padding = vec![0usize; arg_classes.len()];
     let mut offset: usize = 0;
     for (i, cls) in arg_classes.iter().enumerate() {
-        if !cls.is_stack() { continue; }
+        if !cls.is_stack() {
+            continue;
+        }
         if matches!(cls, CallArgClass::F128Stack | CallArgClass::I128Stack) {
             let align_pad = (16 - (offset % 16)) % 16;
             padding[i] = align_pad;
@@ -863,7 +1126,9 @@ pub fn compute_stack_push_bytes(arg_classes: &[CallArgClass]) -> usize {
     let padding = compute_stack_arg_padding(arg_classes);
     let mut total: usize = 0;
     for (i, cls) in arg_classes.iter().enumerate() {
-        if !cls.is_stack() { continue; }
+        if !cls.is_stack() {
+            continue;
+        }
         total += padding[i] + cls.stack_bytes();
     }
     total

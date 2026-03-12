@@ -61,8 +61,8 @@ pub(super) fn replace_reg_name_exact(line: &str, old_reg: &str, new_reg: &str) -
         if pos + old_len <= bytes.len() && &bytes[pos..pos + old_len] == old_bytes {
             // Check that this is a complete register name
             let after = pos + old_len;
-            let is_complete = after >= bytes.len()
-                || matches!(bytes[after], b',' | b')' | b' ' | b'\t' | b'\n');
+            let is_complete =
+                after >= bytes.len() || matches!(bytes[after], b',' | b')' | b' ' | b'\t' | b'\n');
             if is_complete {
                 result.push_str(new_reg);
                 pos += old_len;
@@ -122,10 +122,12 @@ pub(super) fn has_implicit_reg_usage(trimmed: &str) -> bool {
 /// Check if an instruction is a shift/rotate that implicitly uses %cl.
 pub(super) fn is_shift_or_rotate(trimmed: &str) -> bool {
     let nb = trimmed.as_bytes();
-    nb.len() >= 3 && (
-        (nb[0] == b's' && (nb[1] == b'h' || nb[1] == b'a')) || // shl, shr, sal, sar
-        (nb[0] == b'r' && (nb[1] == b'o' || nb[1] == b'c'))    // rol, ror, rcl, rcr
-    )
+    nb.len() >= 3
+        && (
+            (nb[0] == b's' && (nb[1] == b'h' || nb[1] == b'a')) || // shl, shr, sal, sar
+        (nb[0] == b'r' && (nb[1] == b'o' || nb[1] == b'c'))
+            // rol, ror, rcl, rcr
+        )
 }
 
 /// Parse a movq %src, %dst instruction. Returns (src_family, dst_family) if valid.
@@ -143,8 +145,14 @@ pub(super) fn parse_reg_to_reg_movq(info: &LineInfo, trimmed: &str) -> Option<(R
                 }
                 let sfam = register_family_fast(src);
                 let dfam = register_family_fast(dst);
-                if sfam == REG_NONE || sfam > REG_GP_MAX || sfam == 4 || sfam == 5
-                    || dfam == REG_NONE || dfam > REG_GP_MAX || dfam == 4 || dfam == 5
+                if sfam == REG_NONE
+                    || sfam > REG_GP_MAX
+                    || sfam == 4
+                    || sfam == 5
+                    || dfam == REG_NONE
+                    || dfam > REG_GP_MAX
+                    || dfam == 4
+                    || dfam == 5
                     || sfam == dfam
                 {
                     return None;

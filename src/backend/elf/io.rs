@@ -13,7 +13,10 @@ pub fn read_u16(data: &[u8], offset: usize) -> u16 {
 #[inline]
 pub fn read_u32(data: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes([
-        data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
     ])
 }
 
@@ -21,8 +24,14 @@ pub fn read_u32(data: &[u8], offset: usize) -> u32 {
 #[inline]
 pub fn read_u64(data: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes([
-        data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
-        data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+        data[offset + 4],
+        data[offset + 5],
+        data[offset + 6],
+        data[offset + 7],
     ])
 }
 
@@ -30,7 +39,10 @@ pub fn read_u64(data: &[u8], offset: usize) -> u64 {
 #[inline]
 pub fn read_i32(data: &[u8], offset: usize) -> i32 {
     i32::from_le_bytes([
-        data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
     ])
 }
 
@@ -38,8 +50,14 @@ pub fn read_i32(data: &[u8], offset: usize) -> i32 {
 #[inline]
 pub fn read_i64(data: &[u8], offset: usize) -> i64 {
     i64::from_le_bytes([
-        data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
-        data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+        data[offset + 4],
+        data[offset + 5],
+        data[offset + 6],
+        data[offset + 7],
     ])
 }
 
@@ -48,7 +66,10 @@ pub fn read_cstr(data: &[u8], offset: usize) -> String {
     if offset >= data.len() {
         return String::new();
     }
-    let end = data[offset..].iter().position(|&b| b == 0).unwrap_or(data.len() - offset);
+    let end = data[offset..]
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(data.len() - offset);
     String::from_utf8_lossy(&data[offset..offset + end]).into_owned()
 }
 
@@ -92,9 +113,16 @@ pub fn write_bytes(buf: &mut [u8], off: usize, data: &[u8]) {
 /// Append an ELF64 section header to `buf`.
 pub fn write_shdr64(
     buf: &mut Vec<u8>,
-    sh_name: u32, sh_type: u32, sh_flags: u64,
-    sh_addr: u64, sh_offset: u64, sh_size: u64,
-    sh_link: u32, sh_info: u32, sh_addralign: u64, sh_entsize: u64,
+    sh_name: u32,
+    sh_type: u32,
+    sh_flags: u64,
+    sh_addr: u64,
+    sh_offset: u64,
+    sh_size: u64,
+    sh_link: u32,
+    sh_info: u32,
+    sh_addralign: u64,
+    sh_entsize: u64,
 ) {
     buf.extend_from_slice(&sh_name.to_le_bytes());
     buf.extend_from_slice(&sh_type.to_le_bytes());
@@ -111,9 +139,16 @@ pub fn write_shdr64(
 /// Append an ELF32 section header to `buf`.
 pub fn write_shdr32(
     buf: &mut Vec<u8>,
-    sh_name: u32, sh_type: u32, sh_flags: u32,
-    sh_addr: u32, sh_offset: u32, sh_size: u32,
-    sh_link: u32, sh_info: u32, sh_addralign: u32, sh_entsize: u32,
+    sh_name: u32,
+    sh_type: u32,
+    sh_flags: u32,
+    sh_addr: u32,
+    sh_offset: u32,
+    sh_size: u32,
+    sh_link: u32,
+    sh_info: u32,
+    sh_addralign: u32,
+    sh_entsize: u32,
 ) {
     buf.extend_from_slice(&sh_name.to_le_bytes());
     buf.extend_from_slice(&sh_type.to_le_bytes());
@@ -129,9 +164,16 @@ pub fn write_shdr32(
 
 /// Write an ELF64 program header to `buf` at offset `off`.
 pub fn write_phdr64(
-    buf: &mut [u8], off: usize,
-    p_type: u32, p_flags: u32, p_offset: u64,
-    p_vaddr: u64, p_paddr: u64, p_filesz: u64, p_memsz: u64, p_align: u64,
+    buf: &mut [u8],
+    off: usize,
+    p_type: u32,
+    p_flags: u32,
+    p_offset: u64,
+    p_vaddr: u64,
+    p_paddr: u64,
+    p_filesz: u64,
+    p_memsz: u64,
+    p_align: u64,
 ) {
     w32(buf, off, p_type);
     w32(buf, off + 4, p_flags);
@@ -147,15 +189,29 @@ pub fn write_phdr64(
 /// This is a convenience wrapper around `write_phdr64` used by multiple linker
 /// backends to avoid repeating the vaddr twice.
 #[inline]
-pub fn wphdr(buf: &mut [u8], off: usize, pt: u32, flags: u32, foff: u64, va: u64, fsz: u64, msz: u64, align: u64) {
+pub fn wphdr(
+    buf: &mut [u8],
+    off: usize,
+    pt: u32,
+    flags: u32,
+    foff: u64,
+    va: u64,
+    fsz: u64,
+    msz: u64,
+    align: u64,
+) {
     write_phdr64(buf, off, pt, flags, foff, va, va, fsz, msz, align);
 }
 
 /// Write an ELF64 symbol table entry to `buf`.
 pub fn write_sym64(
     buf: &mut Vec<u8>,
-    st_name: u32, st_info: u8, st_other: u8, st_shndx: u16,
-    st_value: u64, st_size: u64,
+    st_name: u32,
+    st_info: u8,
+    st_other: u8,
+    st_shndx: u16,
+    st_value: u64,
+    st_size: u64,
 ) {
     buf.extend_from_slice(&st_name.to_le_bytes());
     buf.push(st_info);
@@ -168,8 +224,12 @@ pub fn write_sym64(
 /// Write an ELF32 symbol table entry to `buf`.
 pub fn write_sym32(
     buf: &mut Vec<u8>,
-    st_name: u32, st_value: u32, st_size: u32,
-    st_info: u8, st_other: u8, st_shndx: u16,
+    st_name: u32,
+    st_value: u32,
+    st_size: u32,
+    st_info: u8,
+    st_other: u8,
+    st_shndx: u16,
 ) {
     buf.extend_from_slice(&st_name.to_le_bytes());
     buf.extend_from_slice(&st_value.to_le_bytes());

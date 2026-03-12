@@ -19,27 +19,42 @@
 
 use crate::common::fx_hash::{FxHashMap, FxHashSet};
 use crate::common::types::{AddressSpace, IrType};
-use crate::ir::reexports::{
-    ConstHashKey,
-    Instruction,
-    IrBinOp,
-    IrCmpOp,
-    IrFunction,
-    IrUnaryOp,
-    Operand,
-    Value,
-};
 use crate::ir::analysis;
+use crate::ir::reexports::{
+    ConstHashKey, Instruction, IrBinOp, IrCmpOp, IrFunction, IrUnaryOp, Operand, Value,
+};
 
 /// A value number expression key. Two instructions with the same ExprKey
 /// compute the same value (assuming their operands are equivalent).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ExprKey {
-    BinOp { op: IrBinOp, lhs: VNOperand, rhs: VNOperand, ty: IrType },
-    UnaryOp { op: IrUnaryOp, src: VNOperand, ty: IrType },
-    Cmp { op: IrCmpOp, lhs: VNOperand, rhs: VNOperand, ty: IrType },
-    Cast { src: VNOperand, from_ty: IrType, to_ty: IrType },
-    Gep { base: VNOperand, offset: VNOperand, ty: IrType },
+    BinOp {
+        op: IrBinOp,
+        lhs: VNOperand,
+        rhs: VNOperand,
+        ty: IrType,
+    },
+    UnaryOp {
+        op: IrUnaryOp,
+        src: VNOperand,
+        ty: IrType,
+    },
+    Cmp {
+        op: IrCmpOp,
+        lhs: VNOperand,
+        rhs: VNOperand,
+        ty: IrType,
+    },
+    Cast {
+        src: VNOperand,
+        from_ty: IrType,
+        to_ty: IrType,
+    },
+    Gep {
+        base: VNOperand,
+        offset: VNOperand,
+        ty: IrType,
+    },
     /// Load CSE key: two loads from the same pointer with the same type
     /// produce the same value if no intervening memory modification occurs.
     Load { ptr: VNOperand, ty: IrType },
@@ -183,7 +198,13 @@ impl GvnState {
     /// the instruction is not eligible for value numbering.
     fn make_expr_key(&mut self, inst: &Instruction) -> Option<(ExprKey, Value)> {
         match inst {
-            Instruction::BinOp { dest, op, lhs, rhs, ty } => {
+            Instruction::BinOp {
+                dest,
+                op,
+                lhs,
+                rhs,
+                ty,
+            } => {
                 let lhs_vn = self.operand_to_vn(lhs);
                 let rhs_vn = self.operand_to_vn(rhs);
 
@@ -194,29 +215,82 @@ impl GvnState {
                     (lhs_vn, rhs_vn)
                 };
 
-                Some((ExprKey::BinOp { op: *op, lhs: lhs_vn, rhs: rhs_vn, ty: *ty }, *dest))
+                Some((
+                    ExprKey::BinOp {
+                        op: *op,
+                        lhs: lhs_vn,
+                        rhs: rhs_vn,
+                        ty: *ty,
+                    },
+                    *dest,
+                ))
             }
             Instruction::UnaryOp { dest, op, src, ty } => {
                 let src_vn = self.operand_to_vn(src);
-                Some((ExprKey::UnaryOp { op: *op, src: src_vn, ty: *ty }, *dest))
+                Some((
+                    ExprKey::UnaryOp {
+                        op: *op,
+                        src: src_vn,
+                        ty: *ty,
+                    },
+                    *dest,
+                ))
             }
-            Instruction::Cmp { dest, op, lhs, rhs, ty } => {
+            Instruction::Cmp {
+                dest,
+                op,
+                lhs,
+                rhs,
+                ty,
+            } => {
                 let lhs_vn = self.operand_to_vn(lhs);
                 let rhs_vn = self.operand_to_vn(rhs);
-                Some((ExprKey::Cmp { op: *op, lhs: lhs_vn, rhs: rhs_vn, ty: *ty }, *dest))
+                Some((
+                    ExprKey::Cmp {
+                        op: *op,
+                        lhs: lhs_vn,
+                        rhs: rhs_vn,
+                        ty: *ty,
+                    },
+                    *dest,
+                ))
             }
-            Instruction::Cast { dest, src, from_ty, to_ty } => {
+            Instruction::Cast {
+                dest,
+                src,
+                from_ty,
+                to_ty,
+            } => {
                 // Don't CSE casts to/from 128-bit types (complex codegen)
                 if from_ty.is_128bit() || to_ty.is_128bit() {
                     return None;
                 }
                 let src_vn = self.operand_to_vn(src);
-                Some((ExprKey::Cast { src: src_vn, from_ty: *from_ty, to_ty: *to_ty }, *dest))
+                Some((
+                    ExprKey::Cast {
+                        src: src_vn,
+                        from_ty: *from_ty,
+                        to_ty: *to_ty,
+                    },
+                    *dest,
+                ))
             }
-            Instruction::GetElementPtr { dest, base, offset, ty } => {
+            Instruction::GetElementPtr {
+                dest,
+                base,
+                offset,
+                ty,
+            } => {
                 let base_vn = self.operand_to_vn(&Operand::Value(*base));
                 let offset_vn = self.operand_to_vn(offset);
-                Some((ExprKey::Gep { base: base_vn, offset: offset_vn, ty: *ty }, *dest))
+                Some((
+                    ExprKey::Gep {
+                        base: base_vn,
+                        offset: offset_vn,
+                        ty: *ty,
+                    },
+                    *dest,
+                ))
             }
             // Load CSE: two loads from the same pointer with the same type can be
             // CSE'd if no intervening memory modification occurred. The caller
@@ -228,7 +302,12 @@ impl GvnState {
             // - Float, long double, i128 types: use different register paths in
             //   codegen that complicate Copy instruction handling
             // - AtomicLoad: has ordering semantics (falls through to _ => None)
-            Instruction::Load { dest, ptr, ty, seg_override } => {
+            Instruction::Load {
+                dest,
+                ptr,
+                ty,
+                seg_override,
+            } => {
                 if *seg_override != AddressSpace::Default {
                     return None;
                 }
@@ -236,7 +315,13 @@ impl GvnState {
                     return None;
                 }
                 let ptr_vn = self.operand_to_vn(&Operand::Value(*ptr));
-                Some((ExprKey::Load { ptr: ptr_vn, ty: *ty }, *dest))
+                Some((
+                    ExprKey::Load {
+                        ptr: ptr_vn,
+                        ty: *ty,
+                    },
+                    *dest,
+                ))
             }
             // Other instructions (Store, Call, AtomicLoad, etc.) are not eligible.
             // AtomicLoad is excluded because it has memory ordering semantics that
@@ -261,7 +346,9 @@ impl GvnState {
     fn restore_scope(&mut self, checkpoint: &ScopeCheckpoint) {
         // Rollback: restore expr_to_value
         while self.rollback_log.len() > checkpoint.rollback_start {
-            let (key, old_val) = self.rollback_log.pop()
+            let (key, old_val) = self
+                .rollback_log
+                .pop()
                 .expect("rollback_log length checked by while condition");
             if let Some(val) = old_val {
                 self.expr_to_value.insert(key, val);
@@ -272,7 +359,9 @@ impl GvnState {
 
         // Rollback: restore load_expr_to_value
         while self.load_rollback_log.len() > checkpoint.load_rollback_start {
-            let (key, old_val) = self.load_rollback_log.pop()
+            let (key, old_val) = self
+                .load_rollback_log
+                .pop()
                 .expect("load_rollback_log length checked by while condition");
             if let Some(val) = old_val {
                 self.load_expr_to_value.insert(key, val);
@@ -283,7 +372,9 @@ impl GvnState {
 
         // Rollback: restore store_fwd_map
         while self.store_fwd_rollback_log.len() > checkpoint.store_fwd_rollback_start {
-            let (key, old_val) = self.store_fwd_rollback_log.pop()
+            let (key, old_val) = self
+                .store_fwd_rollback_log
+                .pop()
                 .expect("store_fwd_rollback_log length checked by while condition");
             if let Some(val) = old_val {
                 self.store_fwd_map.insert(key, val);
@@ -294,7 +385,9 @@ impl GvnState {
 
         // Rollback: restore value_numbers
         while self.vn_log.len() > checkpoint.vn_log_start {
-            let (idx, old_vn) = self.vn_log.pop()
+            let (idx, old_vn) = self
+                .vn_log
+                .pop()
                 .expect("vn_log length checked by while condition");
             self.value_numbers[idx] = old_vn;
         }
@@ -352,7 +445,10 @@ fn find_escaped_param_allocas(func: &IrFunction) -> FxHashSet<u32> {
                     }
                 }
                 // Copy of param alloca = address taken (e.g., simplified &x GEP)
-                Instruction::Copy { src: Operand::Value(v), .. } => {
+                Instruction::Copy {
+                    src: Operand::Value(v),
+                    ..
+                } => {
                     if param_alloca_set.contains(&v.0) {
                         escaped.insert(v.0);
                     }
@@ -473,14 +569,22 @@ fn clobbers_memory(inst: &Instruction) -> bool {
             | Instruction::VaStart { .. }
             | Instruction::VaEnd { .. }
             | Instruction::VaCopy { .. }
-    ) || matches!(inst, Instruction::Intrinsic { dest_ptr: Some(_), .. })
+    ) || matches!(
+        inst,
+        Instruction::Intrinsic {
+            dest_ptr: Some(_),
+            ..
+        }
+    )
 }
 
 /// Check if a Store instruction is eligible for store-to-load forwarding.
 /// Same restrictions as Load CSE: no segment overrides, no float/long-double/i128 types.
 fn is_forwardable_store(inst: &Instruction) -> bool {
     match inst {
-        Instruction::Store { ty, seg_override, .. } => {
+        Instruction::Store {
+            ty, seg_override, ..
+        } => {
             *seg_override == AddressSpace::Default
                 && !ty.is_float()
                 && !ty.is_long_double()
@@ -502,11 +606,7 @@ fn is_forwardable_store(inst: &Instruction) -> bool {
 /// Loads from P (same VN, same type, no intervening memory clobber) are replaced
 /// with Copy(V). This eliminates redundant loads after stores, a common pattern
 /// in struct initialization, local variable access, etc.
-fn process_block(
-    block_idx: usize,
-    func: &mut IrFunction,
-    state: &mut GvnState,
-) -> usize {
+fn process_block(block_idx: usize, func: &mut IrFunction, state: &mut GvnState) -> usize {
     let mut eliminated = 0;
     let mut new_instructions = Vec::with_capacity(func.blocks[block_idx].instructions.len());
     // GVN replaces instructions 1:1 (original or Copy), so spans stay parallel
@@ -536,8 +636,12 @@ fn process_block(
                     let ptr_vn = state.operand_to_vn(&Operand::Value(*ptr));
                     let fwd_key = StoreFwdKey { ptr_vn, ty: *ty };
                     let fwd_key_for_log = fwd_key.clone();
-                    let old_val = state.store_fwd_map.insert(fwd_key, (*val, state.load_generation));
-                    state.store_fwd_rollback_log.push((fwd_key_for_log, old_val));
+                    let old_val = state
+                        .store_fwd_map
+                        .insert(fwd_key, (*val, state.load_generation));
+                    state
+                        .store_fwd_rollback_log
+                        .push((fwd_key_for_log, old_val));
                 }
             }
             // Store has no dest, so no VN to assign. Just keep the instruction.
@@ -552,8 +656,15 @@ fn process_block(
                 // For loads, first try store-to-load forwarding before load CSE.
                 // This catches the pattern: store V -> *P; load *P -> replace with V.
                 if is_load {
-                    if let ExprKey::Load { ptr: ref ptr_vn, ty } = expr_key {
-                        let fwd_key = StoreFwdKey { ptr_vn: ptr_vn.clone(), ty };
+                    if let ExprKey::Load {
+                        ptr: ref ptr_vn,
+                        ty,
+                    } = expr_key
+                    {
+                        let fwd_key = StoreFwdKey {
+                            ptr_vn: ptr_vn.clone(),
+                            ty,
+                        };
                         if let Some((stored_op, gen)) = state.store_fwd_map.get(&fwd_key) {
                             if *gen == state.load_generation {
                                 let stored_op = *stored_op;
@@ -563,7 +674,9 @@ fn process_block(
                                 let forwarded_vn = match &stored_op {
                                     Operand::Value(v) => {
                                         let idx = v.0 as usize;
-                                        if idx < state.value_numbers.len() && state.value_numbers[idx] != u32::MAX {
+                                        if idx < state.value_numbers.len()
+                                            && state.value_numbers[idx] != u32::MAX
+                                        {
                                             state.value_numbers[idx]
                                         } else {
                                             state.fresh_vn()
@@ -579,10 +692,9 @@ fn process_block(
                                 // Also update load CSE map so subsequent loads from the
                                 // same pointer can CSE with this load's dest.
                                 let load_key_for_log = expr_key.clone();
-                                let old_load = state.load_expr_to_value.insert(
-                                    expr_key,
-                                    (dest, state.load_generation),
-                                );
+                                let old_load = state
+                                    .load_expr_to_value
+                                    .insert(expr_key, (dest, state.load_generation));
                                 state.load_rollback_log.push((load_key_for_log, old_load));
                                 new_instructions.push(Instruction::Copy {
                                     dest,
@@ -597,9 +709,16 @@ fn process_block(
 
                 // Look up: check pure expr map, or load map with generation check
                 let existing = if is_load {
-                    state.load_expr_to_value.get(&expr_key).and_then(|&(val, gen)| {
-                        if gen == state.load_generation { Some(val) } else { None }
-                    })
+                    state
+                        .load_expr_to_value
+                        .get(&expr_key)
+                        .and_then(|&(val, gen)| {
+                            if gen == state.load_generation {
+                                Some(val)
+                            } else {
+                                None
+                            }
+                        })
                 } else {
                     state.expr_to_value.get(&expr_key).copied()
                 };
@@ -607,7 +726,9 @@ fn process_block(
                 if let Some(existing_value) = existing {
                     // This expression was already computed
                     let idx = existing_value.0 as usize;
-                    let existing_vn = if idx < state.value_numbers.len() && state.value_numbers[idx] != u32::MAX {
+                    let existing_vn = if idx < state.value_numbers.len()
+                        && state.value_numbers[idx] != u32::MAX
+                    {
                         state.value_numbers[idx]
                     } else {
                         state.fresh_vn()
@@ -635,7 +756,9 @@ fn process_block(
                     // Record in appropriate map with rollback
                     if is_load {
                         let key_for_log = expr_key.clone();
-                        let old_val = state.load_expr_to_value.insert(expr_key, (dest, state.load_generation));
+                        let old_val = state
+                            .load_expr_to_value
+                            .insert(expr_key, (dest, state.load_generation));
                         state.load_rollback_log.push((key_for_log, old_val));
                     } else {
                         let key_for_log = expr_key.clone();
@@ -756,7 +879,10 @@ mod tests {
 
         // Second instruction should be a Copy
         match &module.functions[0].blocks[0].instructions[1] {
-            Instruction::Copy { dest, src: Operand::Value(v) } => {
+            Instruction::Copy {
+                dest,
+                src: Operand::Value(v),
+            } => {
                 assert_eq!(dest.0, 3);
                 assert_eq!(v.0, 2);
             }
@@ -971,7 +1097,10 @@ mod tests {
         assert_eq!(eliminated, 1);
 
         match &module.functions[0].blocks[0].instructions[1] {
-            Instruction::Copy { dest, src: Operand::Value(v) } => {
+            Instruction::Copy {
+                dest,
+                src: Operand::Value(v),
+            } => {
                 assert_eq!(dest.0, 2);
                 assert_eq!(v.0, 1);
             }
@@ -1055,15 +1184,13 @@ mod tests {
             blocks: vec![
                 BasicBlock {
                     label: BlockId(0),
-                    instructions: vec![
-                        Instruction::BinOp {
-                            dest: Value(2),
-                            op: IrBinOp::Add,
-                            lhs: Operand::Value(Value(0)),
-                            rhs: Operand::Value(Value(1)),
-                            ty: IrType::I32,
-                        },
-                    ],
+                    instructions: vec![Instruction::BinOp {
+                        dest: Value(2),
+                        op: IrBinOp::Add,
+                        lhs: Operand::Value(Value(0)),
+                        rhs: Operand::Value(Value(1)),
+                        ty: IrType::I32,
+                    }],
                     terminator: Terminator::Branch(BlockId(1)),
                     source_spans: Vec::new(),
                 },
@@ -1123,7 +1250,10 @@ mod tests {
 
         // The expression in block1 should be replaced with a Copy
         match &module.functions[0].blocks[1].instructions[0] {
-            Instruction::Copy { dest, src: Operand::Value(v) } => {
+            Instruction::Copy {
+                dest,
+                src: Operand::Value(v),
+            } => {
                 assert_eq!(dest.0, 3);
                 assert_eq!(v.0, 2);
             }
@@ -1155,30 +1285,26 @@ mod tests {
                 // block1: compute add (only reached via true branch)
                 BasicBlock {
                     label: BlockId(1),
-                    instructions: vec![
-                        Instruction::BinOp {
-                            dest: Value(2),
-                            op: IrBinOp::Add,
-                            lhs: Operand::Value(Value(0)),
-                            rhs: Operand::Const(IrConst::I32(1)),
-                            ty: IrType::I32,
-                        },
-                    ],
+                    instructions: vec![Instruction::BinOp {
+                        dest: Value(2),
+                        op: IrBinOp::Add,
+                        lhs: Operand::Value(Value(0)),
+                        rhs: Operand::Const(IrConst::I32(1)),
+                        ty: IrType::I32,
+                    }],
                     terminator: Terminator::Branch(BlockId(3)),
                     source_spans: Vec::new(),
                 },
                 // block2: compute same add (only reached via false branch)
                 BasicBlock {
                     label: BlockId(2),
-                    instructions: vec![
-                        Instruction::BinOp {
-                            dest: Value(3),
-                            op: IrBinOp::Add,
-                            lhs: Operand::Value(Value(0)),
-                            rhs: Operand::Const(IrConst::I32(1)),
-                            ty: IrType::I32,
-                        },
-                    ],
+                    instructions: vec![Instruction::BinOp {
+                        dest: Value(3),
+                        op: IrBinOp::Add,
+                        lhs: Operand::Value(Value(0)),
+                        rhs: Operand::Const(IrConst::I32(1)),
+                        ty: IrType::I32,
+                    }],
                     terminator: Terminator::Branch(BlockId(3)),
                     source_spans: Vec::new(),
                 },
@@ -1232,11 +1358,17 @@ mod tests {
         // Both blocks should still have their original BinOp instructions
         assert!(matches!(
             &module.functions[0].blocks[1].instructions[0],
-            Instruction::BinOp { op: IrBinOp::Add, .. }
+            Instruction::BinOp {
+                op: IrBinOp::Add,
+                ..
+            }
         ));
         assert!(matches!(
             &module.functions[0].blocks[2].instructions[0],
-            Instruction::BinOp { op: IrBinOp::Add, .. }
+            Instruction::BinOp {
+                op: IrBinOp::Add,
+                ..
+            }
         ));
     }
 
@@ -1288,25 +1420,28 @@ mod tests {
     #[test]
     fn test_load_cse_same_block() {
         // Two loads from the same pointer in the same block should be CSE'd
-        let func = make_func(vec![BasicBlock {
-            label: BlockId(0),
-            instructions: vec![
-                Instruction::Load {
-                    dest: Value(1),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Load {
-                    dest: Value(2),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-            ],
-            terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
-            source_spans: Vec::new(),
-        }], 3);
+        let func = make_func(
+            vec![BasicBlock {
+                label: BlockId(0),
+                instructions: vec![
+                    Instruction::Load {
+                        dest: Value(1),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Load {
+                        dest: Value(2),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                ],
+                terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
+                source_spans: Vec::new(),
+            }],
+            3,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
@@ -1314,7 +1449,10 @@ mod tests {
 
         // Second load should be replaced with Copy
         match &module.functions[0].blocks[0].instructions[1] {
-            Instruction::Copy { dest, src: Operand::Value(v) } => {
+            Instruction::Copy {
+                dest,
+                src: Operand::Value(v),
+            } => {
                 assert_eq!(dest.0, 2);
                 assert_eq!(v.0, 1);
             }
@@ -1325,31 +1463,34 @@ mod tests {
     #[test]
     fn test_load_cse_invalidated_by_store() {
         // A store between two loads should prevent CSE
-        let func = make_func(vec![BasicBlock {
-            label: BlockId(0),
-            instructions: vec![
-                Instruction::Load {
-                    dest: Value(1),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Store {
-                    val: Operand::Const(IrConst::I32(42)),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Load {
-                    dest: Value(2),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-            ],
-            terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
-            source_spans: Vec::new(),
-        }], 3);
+        let func = make_func(
+            vec![BasicBlock {
+                label: BlockId(0),
+                instructions: vec![
+                    Instruction::Load {
+                        dest: Value(1),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Store {
+                        val: Operand::Const(IrConst::I32(42)),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Load {
+                        dest: Value(2),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                ],
+                terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
+                source_spans: Vec::new(),
+            }],
+            3,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
@@ -1361,43 +1502,46 @@ mod tests {
     #[test]
     fn test_load_cse_invalidated_by_call() {
         // A call between two loads should prevent CSE
-        let func = make_func(vec![BasicBlock {
-            label: BlockId(0),
-            instructions: vec![
-                Instruction::Load {
-                    dest: Value(1),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Call {
-                    func: "side_effect".to_string(),
-                    info: CallInfo {
-                        dest: Some(Value(2)),
-                        args: vec![],
-                        arg_types: vec![],
-                        return_type: IrType::Void,
-                        is_variadic: false,
-                        num_fixed_args: 0,
-                        struct_arg_sizes: vec![],
-                        struct_arg_aligns: vec![],
-                        struct_arg_classes: vec![],
-                        struct_arg_riscv_float_classes: Vec::new(),
-                        is_sret: false,
-                        is_fastcall: false,
-                        ret_eightbyte_classes: Vec::new(),
+        let func = make_func(
+            vec![BasicBlock {
+                label: BlockId(0),
+                instructions: vec![
+                    Instruction::Load {
+                        dest: Value(1),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
                     },
-                },
-                Instruction::Load {
-                    dest: Value(3),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-            ],
-            terminator: Terminator::Return(Some(Operand::Value(Value(3)))),
-            source_spans: Vec::new(),
-        }], 4);
+                    Instruction::Call {
+                        func: "side_effect".to_string(),
+                        info: CallInfo {
+                            dest: Some(Value(2)),
+                            args: vec![],
+                            arg_types: vec![],
+                            return_type: IrType::Void,
+                            is_variadic: false,
+                            num_fixed_args: 0,
+                            struct_arg_sizes: vec![],
+                            struct_arg_aligns: vec![],
+                            struct_arg_classes: vec![],
+                            struct_arg_riscv_float_classes: Vec::new(),
+                            is_sret: false,
+                            is_fastcall: false,
+                            ret_eightbyte_classes: Vec::new(),
+                        },
+                    },
+                    Instruction::Load {
+                        dest: Value(3),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                ],
+                terminator: Terminator::Return(Some(Operand::Value(Value(3)))),
+                source_spans: Vec::new(),
+            }],
+            4,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
@@ -1408,41 +1552,43 @@ mod tests {
     fn test_load_cse_across_dominating_block() {
         // Load in block0 should CSE with load in block1 (block0 dominates block1,
         // single predecessor, no memory clobber)
-        let func = make_func(vec![
-            BasicBlock {
-                label: BlockId(0),
-                instructions: vec![
-                    Instruction::Load {
+        let func = make_func(
+            vec![
+                BasicBlock {
+                    label: BlockId(0),
+                    instructions: vec![Instruction::Load {
                         dest: Value(1),
                         ptr: Value(0),
                         ty: IrType::I32,
                         seg_override: AddressSpace::Default,
-                    },
-                ],
-                terminator: Terminator::Branch(BlockId(1)),
-                source_spans: Vec::new(),
-            },
-            BasicBlock {
-                label: BlockId(1),
-                instructions: vec![
-                    Instruction::Load {
+                    }],
+                    terminator: Terminator::Branch(BlockId(1)),
+                    source_spans: Vec::new(),
+                },
+                BasicBlock {
+                    label: BlockId(1),
+                    instructions: vec![Instruction::Load {
                         dest: Value(2),
                         ptr: Value(0),
                         ty: IrType::I32,
                         seg_override: AddressSpace::Default,
-                    },
-                ],
-                terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
-                source_spans: Vec::new(),
-            },
-        ], 3);
+                    }],
+                    terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
+                    source_spans: Vec::new(),
+                },
+            ],
+            3,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
         assert_eq!(eliminated, 1);
 
         match &module.functions[0].blocks[1].instructions[0] {
-            Instruction::Copy { dest, src: Operand::Value(v) } => {
+            Instruction::Copy {
+                dest,
+                src: Operand::Value(v),
+            } => {
                 assert_eq!(dest.0, 2);
                 assert_eq!(v.0, 1);
             }
@@ -1454,61 +1600,58 @@ mod tests {
     fn test_load_cse_invalidated_at_merge_point() {
         // Diamond CFG: block0 -> {block1, block2} -> block3
         // block1 stores to memory, so Load CSE should be invalidated at block3
-        let func = make_func(vec![
-            // block0: entry, load and branch
-            BasicBlock {
-                label: BlockId(0),
-                instructions: vec![
-                    Instruction::Load {
+        let func = make_func(
+            vec![
+                // block0: entry, load and branch
+                BasicBlock {
+                    label: BlockId(0),
+                    instructions: vec![Instruction::Load {
                         dest: Value(2),
                         ptr: Value(0),
                         ty: IrType::I32,
                         seg_override: AddressSpace::Default,
+                    }],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Value(Value(1)),
+                        true_label: BlockId(1),
+                        false_label: BlockId(2),
                     },
-                ],
-                terminator: Terminator::CondBranch {
-                    cond: Operand::Value(Value(1)),
-                    true_label: BlockId(1),
-                    false_label: BlockId(2),
+                    source_spans: Vec::new(),
                 },
-                source_spans: Vec::new(),
-            },
-            // block1: stores to memory
-            BasicBlock {
-                label: BlockId(1),
-                instructions: vec![
-                    Instruction::Store {
+                // block1: stores to memory
+                BasicBlock {
+                    label: BlockId(1),
+                    instructions: vec![Instruction::Store {
                         val: Operand::Const(IrConst::I32(42)),
                         ptr: Value(0),
                         ty: IrType::I32,
                         seg_override: AddressSpace::Default,
-                    },
-                ],
-                terminator: Terminator::Branch(BlockId(3)),
-                source_spans: Vec::new(),
-            },
-            // block2: no memory modification
-            BasicBlock {
-                label: BlockId(2),
-                instructions: vec![],
-                terminator: Terminator::Branch(BlockId(3)),
-                source_spans: Vec::new(),
-            },
-            // block3: merge point - loads from same pointer
-            BasicBlock {
-                label: BlockId(3),
-                instructions: vec![
-                    Instruction::Load {
+                    }],
+                    terminator: Terminator::Branch(BlockId(3)),
+                    source_spans: Vec::new(),
+                },
+                // block2: no memory modification
+                BasicBlock {
+                    label: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(3)),
+                    source_spans: Vec::new(),
+                },
+                // block3: merge point - loads from same pointer
+                BasicBlock {
+                    label: BlockId(3),
+                    instructions: vec![Instruction::Load {
                         dest: Value(3),
                         ptr: Value(0),
                         ty: IrType::I32,
                         seg_override: AddressSpace::Default,
-                    },
-                ],
-                terminator: Terminator::Return(Some(Operand::Value(Value(3)))),
-                source_spans: Vec::new(),
-            },
-        ], 4);
+                    }],
+                    terminator: Terminator::Return(Some(Operand::Value(Value(3)))),
+                    source_spans: Vec::new(),
+                },
+            ],
+            4,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
@@ -1526,25 +1669,28 @@ mod tests {
     #[test]
     fn test_store_to_load_forwarding_same_block() {
         // store 42 -> *ptr; load *ptr => should be forwarded to Copy(42)
-        let func = make_func(vec![BasicBlock {
-            label: BlockId(0),
-            instructions: vec![
-                Instruction::Store {
-                    val: Operand::Const(IrConst::I32(42)),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Load {
-                    dest: Value(1),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-            ],
-            terminator: Terminator::Return(Some(Operand::Value(Value(1)))),
-            source_spans: Vec::new(),
-        }], 2);
+        let func = make_func(
+            vec![BasicBlock {
+                label: BlockId(0),
+                instructions: vec![
+                    Instruction::Store {
+                        val: Operand::Const(IrConst::I32(42)),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Load {
+                        dest: Value(1),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                ],
+                terminator: Terminator::Return(Some(Operand::Value(Value(1)))),
+                source_spans: Vec::new(),
+            }],
+            2,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
@@ -1552,7 +1698,10 @@ mod tests {
 
         // The load should be replaced with a Copy of the stored constant
         match &module.functions[0].blocks[0].instructions[1] {
-            Instruction::Copy { dest, src: Operand::Const(IrConst::I32(42)) } => {
+            Instruction::Copy {
+                dest,
+                src: Operand::Const(IrConst::I32(42)),
+            } => {
                 assert_eq!(dest.0, 1);
             }
             other => panic!("Expected Copy of constant 42, got {:?}", other),
@@ -1562,32 +1711,38 @@ mod tests {
     #[test]
     fn test_store_to_load_forwarding_value() {
         // store %v -> *ptr; load *ptr => should be forwarded to Copy(%v)
-        let func = make_func(vec![BasicBlock {
-            label: BlockId(0),
-            instructions: vec![
-                Instruction::Store {
-                    val: Operand::Value(Value(1)),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Load {
-                    dest: Value(2),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-            ],
-            terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
-            source_spans: Vec::new(),
-        }], 3);
+        let func = make_func(
+            vec![BasicBlock {
+                label: BlockId(0),
+                instructions: vec![
+                    Instruction::Store {
+                        val: Operand::Value(Value(1)),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Load {
+                        dest: Value(2),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                ],
+                terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
+                source_spans: Vec::new(),
+            }],
+            3,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
         assert_eq!(eliminated, 1);
 
         match &module.functions[0].blocks[0].instructions[1] {
-            Instruction::Copy { dest, src: Operand::Value(v) } => {
+            Instruction::Copy {
+                dest,
+                src: Operand::Value(v),
+            } => {
                 assert_eq!(dest.0, 2);
                 assert_eq!(v.0, 1);
             }
@@ -1598,43 +1753,46 @@ mod tests {
     #[test]
     fn test_store_to_load_forwarding_invalidated_by_call() {
         // store 42 -> *ptr; call foo(); load *ptr => NOT forwarded (call may modify memory)
-        let func = make_func(vec![BasicBlock {
-            label: BlockId(0),
-            instructions: vec![
-                Instruction::Store {
-                    val: Operand::Const(IrConst::I32(42)),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Call {
-                    func: "foo".to_string(),
-                    info: CallInfo {
-                        dest: Some(Value(1)),
-                        args: vec![],
-                        arg_types: vec![],
-                        return_type: IrType::Void,
-                        is_variadic: false,
-                        num_fixed_args: 0,
-                        struct_arg_sizes: vec![],
-                        struct_arg_aligns: vec![],
-                        struct_arg_classes: vec![],
-                        struct_arg_riscv_float_classes: Vec::new(),
-                        is_sret: false,
-                        is_fastcall: false,
-                        ret_eightbyte_classes: Vec::new(),
+        let func = make_func(
+            vec![BasicBlock {
+                label: BlockId(0),
+                instructions: vec![
+                    Instruction::Store {
+                        val: Operand::Const(IrConst::I32(42)),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
                     },
-                },
-                Instruction::Load {
-                    dest: Value(2),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-            ],
-            terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
-            source_spans: Vec::new(),
-        }], 3);
+                    Instruction::Call {
+                        func: "foo".to_string(),
+                        info: CallInfo {
+                            dest: Some(Value(1)),
+                            args: vec![],
+                            arg_types: vec![],
+                            return_type: IrType::Void,
+                            is_variadic: false,
+                            num_fixed_args: 0,
+                            struct_arg_sizes: vec![],
+                            struct_arg_aligns: vec![],
+                            struct_arg_classes: vec![],
+                            struct_arg_riscv_float_classes: Vec::new(),
+                            is_sret: false,
+                            is_fastcall: false,
+                            ret_eightbyte_classes: Vec::new(),
+                        },
+                    },
+                    Instruction::Load {
+                        dest: Value(2),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                ],
+                terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
+                source_spans: Vec::new(),
+            }],
+            3,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
@@ -1645,31 +1803,34 @@ mod tests {
     fn test_store_to_load_forwarding_different_store_invalidates() {
         // store 42 -> *ptr_a; store 99 -> *ptr_b; load *ptr_a
         // => NOT forwarded because the second store (to any address) invalidates all
-        let func = make_func(vec![BasicBlock {
-            label: BlockId(0),
-            instructions: vec![
-                Instruction::Store {
-                    val: Operand::Const(IrConst::I32(42)),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Store {
-                    val: Operand::Const(IrConst::I32(99)),
-                    ptr: Value(1),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Load {
-                    dest: Value(2),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-            ],
-            terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
-            source_spans: Vec::new(),
-        }], 3);
+        let func = make_func(
+            vec![BasicBlock {
+                label: BlockId(0),
+                instructions: vec![
+                    Instruction::Store {
+                        val: Operand::Const(IrConst::I32(42)),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Store {
+                        val: Operand::Const(IrConst::I32(99)),
+                        ptr: Value(1),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Load {
+                        dest: Value(2),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                ],
+                terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
+                source_spans: Vec::new(),
+            }],
+            3,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
@@ -1682,31 +1843,34 @@ mod tests {
     #[test]
     fn test_store_to_load_forwarding_same_ptr_overwrite() {
         // store 42 -> *ptr; store 99 -> *ptr; load *ptr => forwarded to 99
-        let func = make_func(vec![BasicBlock {
-            label: BlockId(0),
-            instructions: vec![
-                Instruction::Store {
-                    val: Operand::Const(IrConst::I32(42)),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Store {
-                    val: Operand::Const(IrConst::I32(99)),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-                Instruction::Load {
-                    dest: Value(1),
-                    ptr: Value(0),
-                    ty: IrType::I32,
-                    seg_override: AddressSpace::Default,
-                },
-            ],
-            terminator: Terminator::Return(Some(Operand::Value(Value(1)))),
-            source_spans: Vec::new(),
-        }], 2);
+        let func = make_func(
+            vec![BasicBlock {
+                label: BlockId(0),
+                instructions: vec![
+                    Instruction::Store {
+                        val: Operand::Const(IrConst::I32(42)),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Store {
+                        val: Operand::Const(IrConst::I32(99)),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                    Instruction::Load {
+                        dest: Value(1),
+                        ptr: Value(0),
+                        ty: IrType::I32,
+                        seg_override: AddressSpace::Default,
+                    },
+                ],
+                terminator: Terminator::Return(Some(Operand::Value(Value(1)))),
+                source_spans: Vec::new(),
+            }],
+            2,
+        );
 
         let mut module = make_module(func);
         let eliminated = module.for_each_function(run_gvn_function);
@@ -1714,7 +1878,10 @@ mod tests {
 
         // Should forward the SECOND store's value (99), not the first (42)
         match &module.functions[0].blocks[0].instructions[2] {
-            Instruction::Copy { dest, src: Operand::Const(IrConst::I32(99)) } => {
+            Instruction::Copy {
+                dest,
+                src: Operand::Const(IrConst::I32(99)),
+            } => {
                 assert_eq!(dest.0, 1);
             }
             other => panic!("Expected Copy of constant 99, got {:?}", other),

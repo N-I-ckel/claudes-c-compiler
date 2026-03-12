@@ -65,10 +65,7 @@ pub fn find_natural_loops(
 pub fn merge_loops_by_header(loops: Vec<NaturalLoop>) -> Vec<NaturalLoop> {
     let mut header_map: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
     for nl in loops {
-        header_map
-            .entry(nl.header)
-            .or_default()
-            .extend(nl.body);
+        header_map.entry(nl.header).or_default().extend(nl.body);
     }
 
     header_map
@@ -80,11 +77,7 @@ pub fn merge_loops_by_header(loops: Vec<NaturalLoop>) -> Vec<NaturalLoop> {
 /// Compute the body of a natural loop given a back edge (tail -> header).
 /// Uses a reverse walk from the tail, adding all blocks that can reach the
 /// tail without going through the header.
-fn compute_loop_body(
-    header: usize,
-    tail: usize,
-    preds: &analysis::FlatAdj,
-) -> FxHashSet<usize> {
+fn compute_loop_body(header: usize, tail: usize, preds: &analysis::FlatAdj) -> FxHashSet<usize> {
     let mut body = FxHashSet::default();
     body.insert(header);
 
@@ -118,7 +111,8 @@ pub fn find_preheader(
     loop_body: &FxHashSet<usize>,
     preds: &analysis::FlatAdj,
 ) -> Option<usize> {
-    let outside_preds: Vec<usize> = preds.row(header)
+    let outside_preds: Vec<usize> = preds
+        .row(header)
         .iter()
         .map(|&p| p as usize)
         .filter(|p| !loop_body.contains(p))

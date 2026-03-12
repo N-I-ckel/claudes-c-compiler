@@ -9,9 +9,9 @@
 //! enabling backends to skip redundant stack loads. This is the foundation for
 //! eventually replacing the pure stack-slot model with a register allocator.
 
+use super::common::AsmOutput;
 use crate::common::fx_hash::{FxHashMap, FxHashSet};
 use crate::common::types::IrType;
-use super::common::AsmOutput;
 
 /// Stack slot location for a value. Interpretation varies by arch:
 /// - x86: negative offset from %rbp
@@ -52,13 +52,20 @@ impl RegCache {
     /// Record that the accumulator now holds the given value.
     #[inline]
     pub fn set_acc(&mut self, value_id: u32, is_alloca: bool) {
-        self.acc = Some(RegCacheEntry { value_id, is_alloca });
+        self.acc = Some(RegCacheEntry {
+            value_id,
+            is_alloca,
+        });
     }
 
     /// Check if the accumulator holds the given value (with matching alloca status).
     #[inline]
     pub fn acc_has(&self, value_id: u32, is_alloca: bool) -> bool {
-        self.acc == Some(RegCacheEntry { value_id, is_alloca })
+        self.acc
+            == Some(RegCacheEntry {
+                value_id,
+                is_alloca,
+            })
     }
 
     /// Invalidate the accumulator cache.
@@ -362,14 +369,16 @@ impl CodegenState {
     #[inline]
     pub fn track_f128_load(&mut self, dest_id: u32, source_id: u32, offset: i64) {
         let is_indirect = !self.is_alloca(source_id);
-        self.f128_load_sources.insert(dest_id, (source_id, offset, is_indirect));
+        self.f128_load_sources
+            .insert(dest_id, (source_id, offset, is_indirect));
     }
 
     /// Track that `value_id` has full F128 data stored directly in its own slot.
     /// (Used after operations like negation or cast that produce full-precision F128 results.)
     #[inline]
     pub fn track_f128_self(&mut self, value_id: u32) {
-        self.f128_load_sources.insert(value_id, (value_id, 0, false));
+        self.f128_load_sources
+            .insert(value_id, (value_id, 0, false));
     }
 
     /// Look up the F128 load source for a value: `(source_id, offset, is_indirect)`.

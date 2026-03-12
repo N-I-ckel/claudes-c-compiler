@@ -20,18 +20,11 @@
 //! with a single pointer addition. The dead multiply and cast are then removed
 //! by subsequent DCE.
 
+use super::loop_analysis::{self, NaturalLoop};
 use crate::common::fx_hash::{FxHashMap, FxHashSet};
 use crate::common::types::IrType;
 use crate::ir::analysis;
-use crate::ir::reexports::{
-    Instruction,
-    IrBinOp,
-    IrConst,
-    IrFunction,
-    Operand,
-    Value,
-};
-use super::loop_analysis::{self, NaturalLoop};
+use crate::ir::reexports::{Instruction, IrBinOp, IrConst, IrFunction, Operand, Value};
 
 /// Maximum stride (in bytes) for an induction variable to be eligible for
 /// strength reduction. Covers common element sizes up to 1 KB; larger strides
@@ -88,7 +81,8 @@ pub(crate) fn ivsr_with_analysis(func: &mut IrFunction, cfg: &analysis::CfgAnaly
     }
 
     // Find natural loops
-    let loops = loop_analysis::find_natural_loops(cfg.num_blocks, &cfg.preds, &cfg.succs, &cfg.idom);
+    let loops =
+        loop_analysis::find_natural_loops(cfg.num_blocks, &cfg.preds, &cfg.succs, &cfg.idom);
     if loops.is_empty() {
         return 0;
     }
@@ -124,7 +118,8 @@ fn reduce_loop(
     };
 
     // Find back-edge blocks (predecessors of header that are inside the loop)
-    let back_blocks: Vec<usize> = preds.row(header)
+    let back_blocks: Vec<usize> = preds
+        .row(header)
         .iter()
         .map(|&p| p as usize)
         .filter(|p| natural_loop.body.contains(p))
@@ -291,9 +286,9 @@ fn reduce_loop(
             for inst in preheader_insts {
                 func.blocks[preheader].instructions.push(inst);
                 if ph_has_spans {
-                    func.blocks[preheader].source_spans.push(
-                        crate::common::source::Span::dummy(),
-                    );
+                    func.blocks[preheader]
+                        .source_spans
+                        .push(crate::common::source::Span::dummy());
                 }
             }
 
@@ -303,7 +298,9 @@ fn reduce_loop(
                 .iter()
                 .position(|inst| !matches!(inst, Instruction::Phi { .. }))
                 .unwrap_or(func.blocks[header].instructions.len());
-            func.blocks[header].instructions.insert(insert_pos, phi_inst);
+            func.blocks[header]
+                .instructions
+                .insert(insert_pos, phi_inst);
             if hdr_has_spans {
                 func.blocks[header]
                     .source_spans
@@ -331,11 +328,10 @@ fn reduce_loop(
                 let inst = &func.blocks[gep_block_idx].instructions[adjusted_idx];
                 if let Some(dest) = inst.dest() {
                     if dest == gep_dest {
-                        func.blocks[gep_block_idx].instructions[adjusted_idx] =
-                            Instruction::Copy {
-                                dest: gep_dest,
-                                src: Operand::Value(ptr_iv_val),
-                            };
+                        func.blocks[gep_block_idx].instructions[adjusted_idx] = Instruction::Copy {
+                            dest: gep_dest,
+                            src: Operand::Value(ptr_iv_val),
+                        };
                         reductions += 1;
                     }
                 }
@@ -387,7 +383,8 @@ fn find_basic_ivs(
             let mut back_val = None;
 
             for (op, block_id) in incoming {
-                let bi_opt = func.blocks
+                let bi_opt = func
+                    .blocks
                     .iter()
                     .enumerate()
                     .find(|(_, b)| b.label == *block_id)
@@ -481,7 +478,12 @@ fn find_derived_exprs(
             }
             for inst in &func.blocks[bi].instructions {
                 match inst {
-                    Instruction::Cast { dest, src: Operand::Value(v), from_ty, to_ty } => {
+                    Instruction::Cast {
+                        dest,
+                        src: Operand::Value(v),
+                        from_ty,
+                        to_ty,
+                    } => {
                         // Only treat widening casts as IV-derived.
                         // Truncating casts (e.g. I32->U8) change the value
                         // and must not be strength-reduced as if linear.
@@ -494,7 +496,10 @@ fn find_derived_exprs(
                             }
                         }
                     }
-                    Instruction::Copy { dest, src: Operand::Value(v) } => {
+                    Instruction::Copy {
+                        dest,
+                        src: Operand::Value(v),
+                    } => {
                         let idx = iv_values.get(&v.0).or_else(|| iv_derived.get(&v.0));
                         if let Some(&iv_idx) = idx {
                             if !iv_derived.contains_key(&dest.0) {
@@ -516,7 +521,10 @@ fn find_derived_exprs(
 
     // Look up whether a value derives from an IV
     let find_iv = |val_id: u32| -> Option<usize> {
-        iv_values.get(&val_id).or_else(|| iv_derived.get(&val_id)).copied()
+        iv_values
+            .get(&val_id)
+            .or_else(|| iv_derived.get(&val_id))
+            .copied()
     };
 
     // Find multiplications/shifts of IV values by constants
@@ -528,23 +536,29 @@ fn find_derived_exprs(
             let (mul_dest, iv_idx, stride) = match inst {
                 // Multiply by constant
                 Instruction::BinOp {
-                    dest, op: IrBinOp::Mul, lhs, rhs, ..
-                } => {
-                    match (lhs, rhs) {
-                        (Operand::Value(v), Operand::Const(c))
-                        | (Operand::Const(c), Operand::Value(v)) => {
-                            if let (Some(idx), Some(s)) = (find_iv(v.0), c.to_i64()) {
-                                (*dest, idx, s)
-                            } else {
-                                continue;
-                            }
+                    dest,
+                    op: IrBinOp::Mul,
+                    lhs,
+                    rhs,
+                    ..
+                } => match (lhs, rhs) {
+                    (Operand::Value(v), Operand::Const(c))
+                    | (Operand::Const(c), Operand::Value(v)) => {
+                        if let (Some(idx), Some(s)) = (find_iv(v.0), c.to_i64()) {
+                            (*dest, idx, s)
+                        } else {
+                            continue;
                         }
-                        _ => continue,
                     }
-                }
+                    _ => continue,
+                },
                 // Shift left by constant (= multiply by 2^k)
                 Instruction::BinOp {
-                    dest, op: IrBinOp::Shl, lhs: Operand::Value(v), rhs: Operand::Const(c), ..
+                    dest,
+                    op: IrBinOp::Shl,
+                    lhs: Operand::Value(v),
+                    rhs: Operand::Const(c),
+                    ..
                 } => {
                     if let (Some(idx), Some(shift)) = (find_iv(v.0), c.to_i64()) {
                         if (0..64).contains(&shift) {
@@ -607,8 +621,14 @@ fn look_through_casts(val_id: u32, loop_defs: &FxHashMap<u32, &Instruction>) -> 
     for _ in 0..MAX_CAST_CHAIN_LENGTH {
         if let Some(inst) = loop_defs.get(&current) {
             match inst {
-                Instruction::Cast { src: Operand::Value(v), .. }
-                | Instruction::Copy { src: Operand::Value(v), .. } => {
+                Instruction::Cast {
+                    src: Operand::Value(v),
+                    ..
+                }
+                | Instruction::Copy {
+                    src: Operand::Value(v),
+                    ..
+                } => {
                     current = v.0;
                 }
                 _ => break,
@@ -857,10 +877,7 @@ mod tests {
             .iter()
             .filter(|i| matches!(i, Instruction::Phi { .. }))
             .collect();
-        assert!(
-            header_phis.len() >= 2,
-            "Expected at least 2 phis in header"
-        );
+        assert!(header_phis.len() >= 2, "Expected at least 2 phis in header");
 
         // Check that the original GEP was replaced with a Copy
         let body_copies: Vec<_> = func.blocks[2]
@@ -868,6 +885,10 @@ mod tests {
             .iter()
             .filter(|i| matches!(i, Instruction::Copy { dest: Value(7), .. }))
             .collect();
-        assert_eq!(body_copies.len(), 1, "Expected GEP to be replaced with Copy");
+        assert_eq!(
+            body_copies.len(),
+            1,
+            "Expected GEP to be replaced with Copy"
+        );
     }
 }

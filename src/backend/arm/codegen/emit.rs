@@ -1,34 +1,32 @@
-use crate::delegate_to_impl;
-use crate::ir::reexports::{
-    AtomicOrdering,
-    AtomicRmwOp,
-    BlockId,
-    Instruction,
-    IntrinsicOp,
-    IrBinOp,
-    IrCmpOp,
-    IrConst,
-    IrFunction,
-    Operand,
-    Value,
-};
-use crate::common::types::IrType;
-use crate::common::fx_hash::FxHashMap;
-use crate::backend::common::PtrDirective;
-use crate::backend::state::{CodegenState, StackSlot};
-use crate::backend::traits::ArchCodegen;
-use crate::backend::generation::find_param_alloca;
-use crate::backend::call_abi::{CallAbiConfig, CallArgClass};
+use super::asm_emitter::ARM_GP_SCRATCH;
 use crate::backend::call_abi::ParamClass;
+use crate::backend::call_abi::{CallAbiConfig, CallArgClass};
+use crate::backend::common::PtrDirective;
+use crate::backend::generation::find_param_alloca;
 use crate::backend::inline_asm::emit_inline_asm_common;
 use crate::backend::regalloc::PhysReg;
-use super::asm_emitter::ARM_GP_SCRATCH;
+use crate::backend::state::{CodegenState, StackSlot};
+use crate::backend::traits::ArchCodegen;
+use crate::common::fx_hash::FxHashMap;
+use crate::common::types::IrType;
+use crate::delegate_to_impl;
+use crate::ir::reexports::{
+    AtomicOrdering, AtomicRmwOp, BlockId, Instruction, IntrinsicOp, IrBinOp, IrCmpOp, IrConst,
+    IrFunction, Operand, Value,
+};
 
 /// Callee-saved registers available for register allocation: x20-x28.
 /// x19 is reserved (some ABIs use it), x29=fp, x30=lr.
 pub(super) const ARM_CALLEE_SAVED: [PhysReg; 9] = [
-    PhysReg(20), PhysReg(21), PhysReg(22), PhysReg(23), PhysReg(24),
-    PhysReg(25), PhysReg(26), PhysReg(27), PhysReg(28),
+    PhysReg(20),
+    PhysReg(21),
+    PhysReg(22),
+    PhysReg(23),
+    PhysReg(24),
+    PhysReg(25),
+    PhysReg(26),
+    PhysReg(27),
+    PhysReg(28),
 ];
 
 /// Caller-saved registers available for register allocation: x13, x14.
@@ -43,17 +41,24 @@ pub(super) const ARM_CALLEE_SAVED: [PhysReg; 9] = [
 /// (inline assembly scratch pool). Since caller-saved allocation only assigns
 /// values whose live ranges do NOT span any call, the call staging use is safe.
 /// Functions with inline assembly have the caller-saved pool disabled entirely.
-pub(super) const ARM_CALLER_SAVED: [PhysReg; 2] = [
-    PhysReg(13), PhysReg(14),
-];
+pub(super) const ARM_CALLER_SAVED: [PhysReg; 2] = [PhysReg(13), PhysReg(14)];
 
 pub(super) fn callee_saved_name(reg: PhysReg) -> &'static str {
     match reg.0 {
         // Caller-saved registers
-        13 => "x13", 14 => "x14",
+        13 => "x13",
+        14 => "x14",
         // Callee-saved registers
-        19 => "x19", 20 => "x20", 21 => "x21", 22 => "x22", 23 => "x23", 24 => "x24",
-        25 => "x25", 26 => "x26", 27 => "x27", 28 => "x28",
+        19 => "x19",
+        20 => "x20",
+        21 => "x21",
+        22 => "x22",
+        23 => "x23",
+        24 => "x24",
+        25 => "x25",
+        26 => "x26",
+        27 => "x27",
+        28 => "x28",
         _ => unreachable!("invalid ARM register index"),
     }
 }
@@ -61,10 +66,19 @@ pub(super) fn callee_saved_name(reg: PhysReg) -> &'static str {
 pub(super) fn callee_saved_name_32(reg: PhysReg) -> &'static str {
     match reg.0 {
         // Caller-saved registers
-        13 => "w13", 14 => "w14",
+        13 => "w13",
+        14 => "w14",
         // Callee-saved registers
-        19 => "w19", 20 => "w20", 21 => "w21", 22 => "w22", 23 => "w23", 24 => "w24",
-        25 => "w25", 26 => "w26", 27 => "w27", 28 => "w28",
+        19 => "w19",
+        20 => "w20",
+        21 => "w21",
+        22 => "w22",
+        23 => "w23",
+        24 => "w24",
+        25 => "w25",
+        26 => "w26",
+        27 => "w27",
+        28 => "w28",
         _ => unreachable!("invalid ARM register index"),
     }
 }
@@ -73,7 +87,8 @@ pub(super) fn callee_saved_name_32(reg: PhysReg) -> &'static str {
 /// (s0-s31, d0-d31, v0-v31, q0-q31).
 /// This avoids false positives for "sp" (stack pointer) which starts with 's'.
 pub(super) fn is_arm_fp_reg(reg: &str) -> bool {
-    if let Some(suffix) = reg.strip_prefix('d')
+    if let Some(suffix) = reg
+        .strip_prefix('d')
         .or_else(|| reg.strip_prefix('s'))
         .or_else(|| reg.strip_prefix('v'))
         .or_else(|| reg.strip_prefix('q'))
@@ -235,17 +250,20 @@ impl ArmCodegen {
         match op {
             Operand::Const(_) => {
                 self.operand_to_x0(op);
-                self.state.emit_fmt(format_args!("    mov {}, x0", reg_name));
+                self.state
+                    .emit_fmt(format_args!("    mov {}, x0", reg_name));
             }
             Operand::Value(v) => {
                 if let Some(&src_reg) = self.reg_assignments.get(&v.0) {
                     if src_reg.0 != reg.0 {
                         let src_name = callee_saved_name(src_reg);
-                        self.state.emit_fmt(format_args!("    mov {}, {}", reg_name, src_name));
+                        self.state
+                            .emit_fmt(format_args!("    mov {}, {}", reg_name, src_name));
                     }
                 } else {
                     self.operand_to_x0(op);
-                    self.state.emit_fmt(format_args!("    mov {}, x0", reg_name));
+                    self.state
+                        .emit_fmt(format_args!("    mov {}, x0", reg_name));
                 }
             }
         }
@@ -306,12 +324,19 @@ impl ArmCodegen {
     /// registers (x19, x20, x21). These must be saved/restored in the prologue,
     /// but the prologue is emitted before inline asm codegen runs. This function
     /// simulates the allocation to discover the callee-saved registers early.
-    pub(super) fn prescan_inline_asm_callee_saved(func: &IrFunction, used_callee_saved: &mut Vec<PhysReg>) {
+    pub(super) fn prescan_inline_asm_callee_saved(
+        func: &IrFunction,
+        used_callee_saved: &mut Vec<PhysReg>,
+    ) {
         for block in &func.blocks {
             for instr in &block.instructions {
                 if let Instruction::InlineAsm {
-                    outputs, inputs, clobbers, ..
-                } = instr {
+                    outputs,
+                    inputs,
+                    clobbers,
+                    ..
+                } = instr
+                {
                     // Build excluded set: clobber registers + specific constraint regs
                     let mut excluded: Vec<String> = Vec::new();
                     for clobber in clobbers {
@@ -349,9 +374,10 @@ impl ArmCodegen {
                     for (constraint, _, _) in outputs {
                         let c = constraint.trim_start_matches(['=', '+', '&', '%']);
                         if c.starts_with('{') && c.ends_with('}') {
-                            let reg_name = &c[1..c.len()-1];
+                            let reg_name = &c[1..c.len() - 1];
                             // Normalize rN -> xN (GCC AArch64 alias)
-                            let normalized = super::asm_emitter::normalize_aarch64_register(reg_name);
+                            let normalized =
+                                super::asm_emitter::normalize_aarch64_register(reg_name);
                             excluded.push(normalized);
                         } else if c == "m" || c == "Q" || c.contains('Q') || c.contains('m') {
                             // Memory operands may need a scratch reg for indirection.
@@ -371,7 +397,7 @@ impl ArmCodegen {
                     // Synthetic inputs from "+r" have constraint "r" and consume a
                     // GP scratch slot in phase 1 (even though the register is later
                     // overwritten by copy_metadata_from). We must count these too.
-                    let num_plus = outputs.iter().filter(|(c,_,_)| c.contains('+')).count();
+                    let num_plus = outputs.iter().filter(|(c, _, _)| c.contains('+')).count();
                     {
                         let mut plus_idx = 0;
                         for (constraint, _, _) in outputs.iter() {
@@ -379,7 +405,11 @@ impl ArmCodegen {
                                 let c = constraint.trim_start_matches(['=', '+', '&', '%']);
                                 // Synthetic input inherits constraint with '+' stripped
                                 // "+r" → "r" (GpReg, consumes scratch), "+m" → "m" (Memory, skip)
-                                if c != "m" && c != "Q" && !c.contains('Q') && !c.contains('m') && c != "w"
+                                if c != "m"
+                                    && c != "Q"
+                                    && !c.contains('Q')
+                                    && !c.contains('m')
+                                    && c != "w"
                                     && !(c.starts_with('{') && c.ends_with('}'))
                                     && (!c.chars().all(|ch| ch.is_ascii_digit()) || c.is_empty())
                                 {
@@ -398,9 +428,10 @@ impl ArmCodegen {
                         }
                         let c = constraint.trim_start_matches(['=', '+', '&', '%']);
                         if c.starts_with('{') && c.ends_with('}') {
-                            let reg_name = &c[1..c.len()-1];
+                            let reg_name = &c[1..c.len() - 1];
                             // Normalize rN -> xN (GCC AArch64 alias)
-                            let normalized = super::asm_emitter::normalize_aarch64_register(reg_name);
+                            let normalized =
+                                super::asm_emitter::normalize_aarch64_register(reg_name);
                             excluded.push(normalized);
                         } else if c == "m" || c == "Q" || c.contains('Q') || c.contains('m') {
                             gp_scratch_needed += 1;
@@ -529,9 +560,9 @@ impl ArmCodegen {
     /// Get the register name for a Value if it has a register assignment.
     /// Returns (64-bit name, 32-bit name) pair.
     fn value_reg_name(&self, v: &Value) -> Option<(&'static str, &'static str)> {
-        self.reg_assignments.get(&v.0).map(|&reg| {
-            (callee_saved_name(reg), callee_saved_name_32(reg))
-        })
+        self.reg_assignments
+            .get(&v.0)
+            .map(|&reg| (callee_saved_name(reg), callee_saved_name_32(reg)))
     }
 
     /// Emit the integer comparison preamble.
@@ -542,9 +573,12 @@ impl ArmCodegen {
     ///   4. fallback → load lhs→x1, rhs→x0, `cmp w1/x1, w0/x0`
     ///      Used by both emit_cmp and emit_fused_cmp_branch.
     pub(super) fn emit_int_cmp_insn(&mut self, lhs: &Operand, rhs: &Operand, ty: IrType) {
-        let use_32bit = ty == IrType::I32 || ty == IrType::U32
-            || ty == IrType::I8 || ty == IrType::U8
-            || ty == IrType::I16 || ty == IrType::U16;
+        let use_32bit = ty == IrType::I32
+            || ty == IrType::U32
+            || ty == IrType::I8
+            || ty == IrType::U8
+            || ty == IrType::I16
+            || ty == IrType::U16;
 
         // Try optimized path: lhs in register, rhs is immediate
         if let Operand::Value(lv) = lhs {
@@ -554,12 +588,14 @@ impl ArmCodegen {
                 // cmp reg, #imm12
                 if let Operand::Const(c) = rhs {
                     if let Some(imm) = Self::const_as_cmp_imm12(c) {
-                        self.state.emit_fmt(format_args!("    cmp {}, #{}", lhs_reg, imm));
+                        self.state
+                            .emit_fmt(format_args!("    cmp {}, #{}", lhs_reg, imm));
                         return;
                     }
                     // cmn reg, #imm12 (for negative constants)
                     if let Some(imm) = Self::const_as_cmn_imm12(c) {
-                        self.state.emit_fmt(format_args!("    cmn {}, #{}", lhs_reg, imm));
+                        self.state
+                            .emit_fmt(format_args!("    cmn {}, #{}", lhs_reg, imm));
                         return;
                     }
                 }
@@ -568,7 +604,8 @@ impl ArmCodegen {
                 if let Operand::Value(rv) = rhs {
                     if let Some((rhs_x, rhs_w)) = self.value_reg_name(rv) {
                         let rhs_reg = if use_32bit { rhs_w } else { rhs_x };
-                        self.state.emit_fmt(format_args!("    cmp {}, {}", lhs_reg, rhs_reg));
+                        self.state
+                            .emit_fmt(format_args!("    cmp {}, {}", lhs_reg, rhs_reg));
                         return;
                     }
                 }
@@ -635,7 +672,9 @@ impl ArmCodegen {
 
     /// Emit a large immediate subtraction from sp. Uses x17 (IP1) as scratch.
     pub(super) fn emit_sub_sp(&mut self, n: i64) {
-        if n == 0 { return; }
+        if n == 0 {
+            return;
+        }
         if n <= 4095 {
             self.state.emit_fmt(format_args!("    sub sp, sp, #{}", n));
         } else {
@@ -646,7 +685,9 @@ impl ArmCodegen {
 
     /// Emit a large immediate addition to sp. Uses x17 (IP1) as scratch.
     pub(super) fn emit_add_sp(&mut self, n: i64) {
-        if n == 0 { return; }
+        if n == 0 {
+            return;
+        }
         if n <= 4095 {
             self.state.emit_fmt(format_args!("    add sp, sp, #{}", n));
         } else {
@@ -683,7 +724,9 @@ impl ArmCodegen {
     /// The unsigned offset is a 12-bit field scaled by access size: max = 4095 * access_size.
     /// The offset must also be naturally aligned to the access size.
     pub(super) fn is_valid_imm_offset(offset: i64, instr: &str, reg: &str) -> bool {
-        if offset < 0 { return false; }
+        if offset < 0 {
+            return false;
+        }
         let access_size = Self::access_size_for_instr(instr, reg);
         let max_offset = 4095 * access_size;
         offset <= max_offset && offset % access_size == 0
@@ -694,45 +737,73 @@ impl ArmCodegen {
     /// before falling back to the expensive movz+movk+add sequence.
     pub(super) fn emit_store_to_sp(&mut self, reg: &str, offset: i64, instr: &str) {
         // When DynAlloca is present, use x29 (frame pointer) as base.
-        let base = if self.state.has_dyn_alloca { "x29" } else { "sp" };
+        let base = if self.state.has_dyn_alloca {
+            "x29"
+        } else {
+            "sp"
+        };
         if Self::is_valid_imm_offset(offset, instr, reg) {
-            self.state.emit_fmt(format_args!("    {} {}, [{}, #{}]", instr, reg, base, offset));
+            self.state.emit_fmt(format_args!(
+                "    {} {}, [{}, #{}]",
+                instr, reg, base, offset
+            ));
         } else if let Some(fb_offset) = self.frame_base_offset {
             // Try x19-relative addressing (x19 = sp + frame_base_offset)
             let rel_offset = offset - fb_offset;
             if Self::is_valid_imm_offset(rel_offset, instr, reg) {
-                self.state.emit_fmt(format_args!("    {} {}, [x19, #{}]", instr, reg, rel_offset));
+                self.state.emit_fmt(format_args!(
+                    "    {} {}, [x19, #{}]",
+                    instr, reg, rel_offset
+                ));
             } else {
                 self.load_large_imm("x17", offset);
-                self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-                self.state.emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
+                self.state
+                    .emit_fmt(format_args!("    add x17, {}, x17", base));
+                self.state
+                    .emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
             }
         } else {
             self.load_large_imm("x17", offset);
-            self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-            self.state.emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
+            self.state
+                .emit_fmt(format_args!("    add x17, {}, x17", base));
+            self.state
+                .emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
         }
     }
 
     /// Emit load from [base, #offset], handling large offsets.
     /// For large frames with x19 as frame base register, tries x19-relative addressing.
     pub(super) fn emit_load_from_sp(&mut self, reg: &str, offset: i64, instr: &str) {
-        let base = if self.state.has_dyn_alloca { "x29" } else { "sp" };
+        let base = if self.state.has_dyn_alloca {
+            "x29"
+        } else {
+            "sp"
+        };
         if Self::is_valid_imm_offset(offset, instr, reg) {
-            self.state.emit_fmt(format_args!("    {} {}, [{}, #{}]", instr, reg, base, offset));
+            self.state.emit_fmt(format_args!(
+                "    {} {}, [{}, #{}]",
+                instr, reg, base, offset
+            ));
         } else if let Some(fb_offset) = self.frame_base_offset {
             let rel_offset = offset - fb_offset;
             if Self::is_valid_imm_offset(rel_offset, instr, reg) {
-                self.state.emit_fmt(format_args!("    {} {}, [x19, #{}]", instr, reg, rel_offset));
+                self.state.emit_fmt(format_args!(
+                    "    {} {}, [x19, #{}]",
+                    instr, reg, rel_offset
+                ));
             } else {
                 self.load_large_imm("x17", offset);
-                self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-                self.state.emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
+                self.state
+                    .emit_fmt(format_args!("    add x17, {}, x17", base));
+                self.state
+                    .emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
             }
         } else {
             self.load_large_imm("x17", offset);
-            self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-            self.state.emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
+            self.state
+                .emit_fmt(format_args!("    add x17, {}, x17", base));
+            self.state
+                .emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
         }
     }
 
@@ -741,76 +812,111 @@ impl ArmCodegen {
     /// current sp, NOT in the frame (x29-relative).
     pub(super) fn emit_store_to_raw_sp(&mut self, reg: &str, offset: i64, instr: &str) {
         if Self::is_valid_imm_offset(offset, instr, reg) {
-            self.state.emit_fmt(format_args!("    {} {}, [sp, #{}]", instr, reg, offset));
+            self.state
+                .emit_fmt(format_args!("    {} {}, [sp, #{}]", instr, reg, offset));
         } else {
             self.load_large_imm("x17", offset);
             self.state.emit("    add x17, sp, x17");
-            self.state.emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
+            self.state
+                .emit_fmt(format_args!("    {} {}, [x17]", instr, reg));
         }
     }
 
     /// Emit `stp reg1, reg2, [base, #offset]` handling large offsets.
     /// Uses x19 frame base for large frames when possible.
     pub(super) fn emit_stp_to_sp(&mut self, reg1: &str, reg2: &str, offset: i64) {
-        let base = if self.state.has_dyn_alloca { "x29" } else { "sp" };
+        let base = if self.state.has_dyn_alloca {
+            "x29"
+        } else {
+            "sp"
+        };
         // stp supports signed offsets in [-512, 504] range (multiples of 8)
         if (-512..=504).contains(&offset) {
-            self.state.emit_fmt(format_args!("    stp {}, {}, [{}, #{}]", reg1, reg2, base, offset));
+            self.state.emit_fmt(format_args!(
+                "    stp {}, {}, [{}, #{}]",
+                reg1, reg2, base, offset
+            ));
         } else if let Some(fb_offset) = self.frame_base_offset {
             let rel = offset - fb_offset;
             if (-512..=504).contains(&rel) {
-                self.state.emit_fmt(format_args!("    stp {}, {}, [x19, #{}]", reg1, reg2, rel));
+                self.state
+                    .emit_fmt(format_args!("    stp {}, {}, [x19, #{}]", reg1, reg2, rel));
             } else {
                 self.load_large_imm("x17", offset);
-                self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-                self.state.emit_fmt(format_args!("    stp {}, {}, [x17]", reg1, reg2));
+                self.state
+                    .emit_fmt(format_args!("    add x17, {}, x17", base));
+                self.state
+                    .emit_fmt(format_args!("    stp {}, {}, [x17]", reg1, reg2));
             }
         } else {
             self.load_large_imm("x17", offset);
-            self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-            self.state.emit_fmt(format_args!("    stp {}, {}, [x17]", reg1, reg2));
+            self.state
+                .emit_fmt(format_args!("    add x17, {}, x17", base));
+            self.state
+                .emit_fmt(format_args!("    stp {}, {}, [x17]", reg1, reg2));
         }
     }
 
     pub(super) fn emit_ldp_from_sp(&mut self, reg1: &str, reg2: &str, offset: i64) {
-        let base = if self.state.has_dyn_alloca { "x29" } else { "sp" };
+        let base = if self.state.has_dyn_alloca {
+            "x29"
+        } else {
+            "sp"
+        };
         if (-512..=504).contains(&offset) {
-            self.state.emit_fmt(format_args!("    ldp {}, {}, [{}, #{}]", reg1, reg2, base, offset));
+            self.state.emit_fmt(format_args!(
+                "    ldp {}, {}, [{}, #{}]",
+                reg1, reg2, base, offset
+            ));
         } else if let Some(fb_offset) = self.frame_base_offset {
             let rel = offset - fb_offset;
             if (-512..=504).contains(&rel) {
-                self.state.emit_fmt(format_args!("    ldp {}, {}, [x19, #{}]", reg1, reg2, rel));
+                self.state
+                    .emit_fmt(format_args!("    ldp {}, {}, [x19, #{}]", reg1, reg2, rel));
             } else {
                 self.load_large_imm("x17", offset);
-                self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-                self.state.emit_fmt(format_args!("    ldp {}, {}, [x17]", reg1, reg2));
+                self.state
+                    .emit_fmt(format_args!("    add x17, {}, x17", base));
+                self.state
+                    .emit_fmt(format_args!("    ldp {}, {}, [x17]", reg1, reg2));
             }
         } else {
             self.load_large_imm("x17", offset);
-            self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-            self.state.emit_fmt(format_args!("    ldp {}, {}, [x17]", reg1, reg2));
+            self.state
+                .emit_fmt(format_args!("    add x17, {}, x17", base));
+            self.state
+                .emit_fmt(format_args!("    ldp {}, {}, [x17]", reg1, reg2));
         }
     }
 
     /// Emit `add dest, sp, #offset` handling large offsets.
     /// Uses x19 frame base when available, falls back to x17 scratch.
     pub(super) fn emit_add_sp_offset(&mut self, dest: &str, offset: i64) {
-        let base = if self.state.has_dyn_alloca { "x29" } else { "sp" };
+        let base = if self.state.has_dyn_alloca {
+            "x29"
+        } else {
+            "sp"
+        };
         if (0..=4095).contains(&offset) {
-            self.state.emit_fmt(format_args!("    add {}, {}, #{}", dest, base, offset));
+            self.state
+                .emit_fmt(format_args!("    add {}, {}, #{}", dest, base, offset));
         } else if let Some(fb_offset) = self.frame_base_offset {
             let rel = offset - fb_offset;
             if (0..=4095).contains(&rel) {
-                self.state.emit_fmt(format_args!("    add {}, x19, #{}", dest, rel));
+                self.state
+                    .emit_fmt(format_args!("    add {}, x19, #{}", dest, rel));
             } else if (-4095..0).contains(&rel) {
-                self.state.emit_fmt(format_args!("    sub {}, x19, #{}", dest, -rel));
+                self.state
+                    .emit_fmt(format_args!("    sub {}, x19, #{}", dest, -rel));
             } else {
                 self.load_large_imm("x17", offset);
-                self.state.emit_fmt(format_args!("    add {}, {}, x17", dest, base));
+                self.state
+                    .emit_fmt(format_args!("    add {}, {}, x17", dest, base));
             }
         } else {
             self.load_large_imm("x17", offset);
-            self.state.emit_fmt(format_args!("    add {}, {}, x17", dest, base));
+            self.state
+                .emit_fmt(format_args!("    add {}, {}, x17", dest, base));
         }
     }
 
@@ -822,9 +928,11 @@ impl ArmCodegen {
         if let Some(align) = self.state.alloca_over_align(val_id) {
             self.emit_add_sp_offset(dest, offset);
             self.load_large_imm("x17", (align - 1) as i64);
-            self.state.emit_fmt(format_args!("    add {}, {}, x17", dest, dest));
+            self.state
+                .emit_fmt(format_args!("    add {}, {}, x17", dest, dest));
             self.load_large_imm("x17", -(align as i64));
-            self.state.emit_fmt(format_args!("    and {}, {}, x17", dest, dest));
+            self.state
+                .emit_fmt(format_args!("    and {}, {}, x17", dest, dest));
         } else {
             self.emit_add_sp_offset(dest, offset);
         }
@@ -834,10 +942,12 @@ impl ArmCodegen {
     /// Uses x17 (IP1) as scratch for offsets > 4095.
     pub(super) fn emit_add_fp_offset(&mut self, dest: &str, offset: i64) {
         if (0..=4095).contains(&offset) {
-            self.state.emit_fmt(format_args!("    add {}, x29, #{}", dest, offset));
+            self.state
+                .emit_fmt(format_args!("    add {}, x29, #{}", dest, offset));
         } else {
             self.load_large_imm("x17", offset);
-            self.state.emit_fmt(format_args!("    add {}, x29, x17", dest));
+            self.state
+                .emit_fmt(format_args!("    add {}, x29, x17", dest));
         }
     }
 
@@ -846,11 +956,16 @@ impl ArmCodegen {
     /// effective address into x17 and loads from [x17].
     pub(super) fn emit_load_from_reg(&mut self, dest: &str, base: &str, offset: i64, instr: &str) {
         if Self::is_valid_imm_offset(offset, instr, dest) {
-            self.state.emit_fmt(format_args!("    {} {}, [{}, #{}]", instr, dest, base, offset));
+            self.state.emit_fmt(format_args!(
+                "    {} {}, [{}, #{}]",
+                instr, dest, base, offset
+            ));
         } else {
             self.load_large_imm("x17", offset);
-            self.state.emit_fmt(format_args!("    add x17, {}, x17", base));
-            self.state.emit_fmt(format_args!("    {} {}, [x17]", instr, dest));
+            self.state
+                .emit_fmt(format_args!("    add x17, {}, x17", base));
+            self.state
+                .emit_fmt(format_args!("    {} {}, [x17]", instr, dest));
         }
     }
 
@@ -897,15 +1012,23 @@ impl ArmCodegen {
                     let not_h = (!h) as u64 & 0xffff;
                     if first {
                         if shift == 0 {
-                            self.state.emit_fmt(format_args!("    movn {}, #{}", reg, not_h));
+                            self.state
+                                .emit_fmt(format_args!("    movn {}, #{}", reg, not_h));
                         } else {
-                            self.state.emit_fmt(format_args!("    movn {}, #{}, lsl #{}", reg, not_h, shift));
+                            self.state.emit_fmt(format_args!(
+                                "    movn {}, #{}, lsl #{}",
+                                reg, not_h, shift
+                            ));
                         }
                         first = false;
                     } else if shift == 0 {
-                        self.state.emit_fmt(format_args!("    movk {}, #{}", reg, h as u64));
+                        self.state
+                            .emit_fmt(format_args!("    movk {}, #{}", reg, h as u64));
                     } else {
-                        self.state.emit_fmt(format_args!("    movk {}, #{}, lsl #{}", reg, h as u64, shift));
+                        self.state.emit_fmt(format_args!(
+                            "    movk {}, #{}, lsl #{}",
+                            reg, h as u64, shift
+                        ));
                     }
                 }
             }
@@ -917,15 +1040,23 @@ impl ArmCodegen {
                     let shift = i * 16;
                     if first {
                         if shift == 0 {
-                            self.state.emit_fmt(format_args!("    movz {}, #{}", reg, h as u64));
+                            self.state
+                                .emit_fmt(format_args!("    movz {}, #{}", reg, h as u64));
                         } else {
-                            self.state.emit_fmt(format_args!("    movz {}, #{}, lsl #{}", reg, h as u64, shift));
+                            self.state.emit_fmt(format_args!(
+                                "    movz {}, #{}, lsl #{}",
+                                reg, h as u64, shift
+                            ));
                         }
                         first = false;
                     } else if shift == 0 {
-                        self.state.emit_fmt(format_args!("    movk {}, #{}", reg, h as u64));
+                        self.state
+                            .emit_fmt(format_args!("    movk {}, #{}", reg, h as u64));
                     } else {
-                        self.state.emit_fmt(format_args!("    movk {}, #{}, lsl #{}", reg, h as u64, shift));
+                        self.state.emit_fmt(format_args!(
+                            "    movk {}, #{}, lsl #{}",
+                            reg, h as u64, shift
+                        ));
                     }
                 }
             }
@@ -936,11 +1067,15 @@ impl ArmCodegen {
     pub(super) fn emit_prologue_arm(&mut self, frame_size: i64) {
         const PAGE_SIZE: i64 = 4096;
         if frame_size > 0 && frame_size <= 504 {
-            self.state.emit_fmt(format_args!("    stp x29, x30, [sp, #-{}]!", frame_size));
+            self.state
+                .emit_fmt(format_args!("    stp x29, x30, [sp, #-{}]!", frame_size));
             if self.state.emit_cfi {
-                self.state.emit_fmt(format_args!("    .cfi_def_cfa_offset {}", frame_size));
-                self.state.emit_fmt(format_args!("    .cfi_offset x29, -{}", frame_size));
-                self.state.emit_fmt(format_args!("    .cfi_offset x30, -{}", frame_size - 8));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_def_cfa_offset {}", frame_size));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_offset x29, -{}", frame_size));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_offset x30, -{}", frame_size - 8));
             }
         } else if frame_size > PAGE_SIZE {
             // Stack probing: for large frames, touch each page so the kernel
@@ -949,26 +1084,36 @@ impl ArmCodegen {
             let probe_label = self.state.fresh_label("stack_probe");
             self.emit_load_imm64("x17", frame_size);
             self.state.emit_fmt(format_args!("{}:", probe_label));
-            self.state.emit_fmt(format_args!("    sub sp, sp, #{}", PAGE_SIZE));
+            self.state
+                .emit_fmt(format_args!("    sub sp, sp, #{}", PAGE_SIZE));
             self.state.emit("    str xzr, [sp]");
-            self.state.emit_fmt(format_args!("    sub x17, x17, #{}", PAGE_SIZE));
-            self.state.emit_fmt(format_args!("    cmp x17, #{}", PAGE_SIZE));
-            self.state.emit_fmt(format_args!("    b.hi {}", probe_label));
+            self.state
+                .emit_fmt(format_args!("    sub x17, x17, #{}", PAGE_SIZE));
+            self.state
+                .emit_fmt(format_args!("    cmp x17, #{}", PAGE_SIZE));
+            self.state
+                .emit_fmt(format_args!("    b.hi {}", probe_label));
             self.state.emit("    sub sp, sp, x17");
             self.state.emit("    str xzr, [sp]");
             self.state.emit("    stp x29, x30, [sp]");
             if self.state.emit_cfi {
-                self.state.emit_fmt(format_args!("    .cfi_def_cfa_offset {}", frame_size));
-                self.state.emit_fmt(format_args!("    .cfi_offset x29, -{}", frame_size));
-                self.state.emit_fmt(format_args!("    .cfi_offset x30, -{}", frame_size - 8));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_def_cfa_offset {}", frame_size));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_offset x29, -{}", frame_size));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_offset x30, -{}", frame_size - 8));
             }
         } else {
             self.emit_sub_sp(frame_size);
             self.state.emit("    stp x29, x30, [sp]");
             if self.state.emit_cfi {
-                self.state.emit_fmt(format_args!("    .cfi_def_cfa_offset {}", frame_size));
-                self.state.emit_fmt(format_args!("    .cfi_offset x29, -{}", frame_size));
-                self.state.emit_fmt(format_args!("    .cfi_offset x30, -{}", frame_size - 8));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_def_cfa_offset {}", frame_size));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_offset x29, -{}", frame_size));
+                self.state
+                    .emit_fmt(format_args!("    .cfi_offset x30, -{}", frame_size - 8));
             }
         }
         self.state.emit("    mov x29, sp");
@@ -984,7 +1129,8 @@ impl ArmCodegen {
             self.state.emit("    mov sp, x29");
         }
         if frame_size > 0 && frame_size <= 504 {
-            self.state.emit_fmt(format_args!("    ldp x29, x30, [sp], #{}", frame_size));
+            self.state
+                .emit_fmt(format_args!("    ldp x29, x30, [sp], #{}", frame_size));
         } else {
             self.state.emit("    ldp x29, x30, [sp]");
             self.emit_add_sp(frame_size);
@@ -1031,7 +1177,8 @@ impl ArmCodegen {
                 // Check for callee-saved register assignment.
                 if let Some(&reg) = self.reg_assignments.get(&v.0) {
                     let reg_name = callee_saved_name(reg);
-                    self.state.emit_fmt(format_args!("    mov x0, {}", reg_name));
+                    self.state
+                        .emit_fmt(format_args!("    mov x0, {}", reg_name));
                     self.state.reg_cache.set_acc(v.0, false);
                     return;
                 }
@@ -1042,7 +1189,9 @@ impl ArmCodegen {
                         self.emit_load_from_sp("x0", slot.0, "ldr");
                     }
                     self.state.reg_cache.set_acc(v.0, is_alloca);
-                } else if self.state.reg_cache.acc_has(v.0, false) || self.state.reg_cache.acc_has(v.0, true) {
+                } else if self.state.reg_cache.acc_has(v.0, false)
+                    || self.state.reg_cache.acc_has(v.0, true)
+                {
                     // Value has no slot or register but is in the accumulator cache
                     // (skip-slot optimization: immediately-consumed values stay in x0).
                 } else {
@@ -1058,7 +1207,8 @@ impl ArmCodegen {
         if let Some(&reg) = self.reg_assignments.get(&dest.0) {
             // Value has a callee-saved register: store only to register, skip stack.
             let reg_name = callee_saved_name(reg);
-            self.state.emit_fmt(format_args!("    mov {}, x0", reg_name));
+            self.state
+                .emit_fmt(format_args!("    mov {}, x0", reg_name));
         } else if let Some(slot) = self.state.get_slot(dest.0) {
             self.emit_store_to_sp("x0", slot.0, "str");
         }
@@ -1107,7 +1257,8 @@ impl ArmCodegen {
                         // may not have their stack slot written.
                         if let Some(&reg) = self.reg_assignments.get(&v.0) {
                             let reg_name = callee_saved_name(reg);
-                            self.state.emit_fmt(format_args!("    mov x0, {}", reg_name));
+                            self.state
+                                .emit_fmt(format_args!("    mov x0, {}", reg_name));
                         } else {
                             self.emit_load_from_sp("x0", slot.0, "ldr");
                         }
@@ -1117,7 +1268,8 @@ impl ArmCodegen {
                     // No stack slot: check register allocation
                     if let Some(&reg) = self.reg_assignments.get(&v.0) {
                         let reg_name = callee_saved_name(reg);
-                        self.state.emit_fmt(format_args!("    mov x0, {}", reg_name));
+                        self.state
+                            .emit_fmt(format_args!("    mov x0, {}", reg_name));
                         self.state.emit("    mov x1, #0");
                     } else {
                         self.state.emit("    mov x0, #0");
@@ -1154,27 +1306,87 @@ impl ArmCodegen {
         match ty {
             IrType::I8 | IrType::U8 => "strb",
             IrType::I16 | IrType::U16 => "strh",
-            IrType::I32 | IrType::U32 | IrType::F32 => "str",  // 32-bit store with w register
-            _ => "str",  // 64-bit store with x register
+            IrType::I32 | IrType::U32 | IrType::F32 => "str", // 32-bit store with w register
+            _ => "str",                                       // 64-bit store with x register
         }
     }
 
     /// Get the appropriate register name for a given base and type.
     pub(super) fn reg_for_type(base: &str, ty: IrType) -> &'static str {
-        let use_w = matches!(ty,
-            IrType::I8 | IrType::U8 | IrType::I16 | IrType::U16 |
-            IrType::I32 | IrType::U32 | IrType::F32
+        let use_w = matches!(
+            ty,
+            IrType::I8
+                | IrType::U8
+                | IrType::I16
+                | IrType::U16
+                | IrType::I32
+                | IrType::U32
+                | IrType::F32
         );
         match base {
-            "x0" => if use_w { "w0" } else { "x0" },
-            "x1" => if use_w { "w1" } else { "x1" },
-            "x2" => if use_w { "w2" } else { "x2" },
-            "x3" => if use_w { "w3" } else { "x3" },
-            "x4" => if use_w { "w4" } else { "x4" },
-            "x5" => if use_w { "w5" } else { "x5" },
-            "x6" => if use_w { "w6" } else { "x6" },
-            "x7" => if use_w { "w7" } else { "x7" },
-            "x8" => if use_w { "w8" } else { "x8" },
+            "x0" => {
+                if use_w {
+                    "w0"
+                } else {
+                    "x0"
+                }
+            }
+            "x1" => {
+                if use_w {
+                    "w1"
+                } else {
+                    "x1"
+                }
+            }
+            "x2" => {
+                if use_w {
+                    "w2"
+                } else {
+                    "x2"
+                }
+            }
+            "x3" => {
+                if use_w {
+                    "w3"
+                } else {
+                    "x3"
+                }
+            }
+            "x4" => {
+                if use_w {
+                    "w4"
+                } else {
+                    "x4"
+                }
+            }
+            "x5" => {
+                if use_w {
+                    "w5"
+                } else {
+                    "x5"
+                }
+            }
+            "x6" => {
+                if use_w {
+                    "w6"
+                } else {
+                    "x6"
+                }
+            }
+            "x7" => {
+                if use_w {
+                    "w7"
+                } else {
+                    "x7"
+                }
+            }
+            "x8" => {
+                if use_w {
+                    "w8"
+                } else {
+                    "x8"
+                }
+            }
             _ => "x0",
         }
     }
@@ -1194,7 +1406,11 @@ impl ArmCodegen {
 
     /// Like arm_parse_load but returns the w/x variant of the given register number
     /// instead of hardcoded x0/w0. Used when x0 must not be clobbered.
-    pub(super) fn arm_parse_load_to_reg(instr: &'static str, xreg: &'static str, wreg: &'static str) -> (&'static str, &'static str) {
+    pub(super) fn arm_parse_load_to_reg(
+        instr: &'static str,
+        xreg: &'static str,
+        wreg: &'static str,
+    ) -> (&'static str, &'static str) {
         match instr {
             "ldr32" => ("ldr", wreg),
             "ldr64" => ("ldr", xreg),
@@ -1223,12 +1439,23 @@ impl ArmCodegen {
     /// Load an operand into the given destination register, accounting for SP adjustment.
     /// When `needs_adjusted_load` is true, values must be loaded from adjusted stack offsets
     /// or callee-saved registers (since SP has been modified for stack args).
-    pub(super) fn emit_load_arg_to_reg(&mut self, arg: &Operand, dest: &str, slot_adjust: i64, extra_sp_adj: i64, needs_adjusted_load: bool) {
+    pub(super) fn emit_load_arg_to_reg(
+        &mut self,
+        arg: &Operand,
+        dest: &str,
+        slot_adjust: i64,
+        extra_sp_adj: i64,
+        needs_adjusted_load: bool,
+    ) {
         if needs_adjusted_load || extra_sp_adj > 0 {
             match arg {
                 Operand::Value(v) => {
                     if let Some(&reg) = self.reg_assignments.get(&v.0) {
-                        self.state.emit_fmt(format_args!("    mov {}, {}", dest, callee_saved_name(reg)));
+                        self.state.emit_fmt(format_args!(
+                            "    mov {}, {}",
+                            dest,
+                            callee_saved_name(reg)
+                        ));
                     } else if let Some(slot) = self.state.get_slot(v.0) {
                         let adjusted = slot.0 + slot_adjust + extra_sp_adj;
                         if self.state.is_alloca(v.0) {
@@ -1255,7 +1482,11 @@ impl ArmCodegen {
             match arg {
                 Operand::Value(v) => {
                     if let Some(&reg) = self.reg_assignments.get(&v.0) {
-                        self.state.emit_fmt(format_args!("    mov {}, {}", dest, callee_saved_name(reg)));
+                        self.state.emit_fmt(format_args!(
+                            "    mov {}, {}",
+                            dest,
+                            callee_saved_name(reg)
+                        ));
                     } else if let Some(slot) = self.state.get_slot(v.0) {
                         if self.state.is_alloca(v.0) {
                             self.emit_alloca_addr(dest, v.0, slot.0);
@@ -1277,34 +1508,63 @@ impl ArmCodegen {
     }
 
     /// Phase 2a: Load GP integer register args into temp registers (x9-x16).
-    pub(super) fn emit_call_gp_to_temps(&mut self, args: &[Operand], arg_classes: &[CallArgClass],
-                              slot_adjust: i64, needs_adjusted_load: bool) {
+    pub(super) fn emit_call_gp_to_temps(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+        slot_adjust: i64,
+        needs_adjusted_load: bool,
+    ) {
         let mut gp_tmp_idx = 0usize;
         for (i, arg) in args.iter().enumerate() {
-            if !matches!(arg_classes[i], CallArgClass::IntReg { .. }) { continue; }
-            if gp_tmp_idx >= 8 { break; }
+            if !matches!(arg_classes[i], CallArgClass::IntReg { .. }) {
+                continue;
+            }
+            if gp_tmp_idx >= 8 {
+                break;
+            }
             self.emit_load_arg_to_reg(arg, "x0", slot_adjust, 0, needs_adjusted_load);
-            self.state.emit_fmt(format_args!("    mov {}, x0", ARM_TMP_REGS[gp_tmp_idx]));
+            self.state
+                .emit_fmt(format_args!("    mov {}, x0", ARM_TMP_REGS[gp_tmp_idx]));
             gp_tmp_idx += 1;
         }
     }
 
     /// Phase 2b: Load FP register args, handling F128 via temp stack + __extenddftf2.
-    pub(super) fn emit_call_fp_reg_args(&mut self, args: &[Operand], arg_classes: &[CallArgClass],
-                              arg_types: &[IrType], slot_adjust: i64, needs_adjusted_load: bool) {
-        let fp_reg_assignments: Vec<(usize, usize)> = args.iter().enumerate()
-            .filter(|(i, _)| matches!(arg_classes[*i], CallArgClass::FloatReg { .. } | CallArgClass::F128Reg { .. }))
+    pub(super) fn emit_call_fp_reg_args(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+        arg_types: &[IrType],
+        slot_adjust: i64,
+        needs_adjusted_load: bool,
+    ) {
+        let fp_reg_assignments: Vec<(usize, usize)> = args
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                matches!(
+                    arg_classes[*i],
+                    CallArgClass::FloatReg { .. } | CallArgClass::F128Reg { .. }
+                )
+            })
             .map(|(i, _)| {
                 let reg_idx = match arg_classes[i] {
-                    CallArgClass::FloatReg { reg_idx } | CallArgClass::F128Reg { reg_idx } => reg_idx,
+                    CallArgClass::FloatReg { reg_idx } | CallArgClass::F128Reg { reg_idx } => {
+                        reg_idx
+                    }
                     _ => 0,
                 };
                 (i, reg_idx)
             })
             .collect();
 
-        let f128_var_count: usize = fp_reg_assignments.iter()
-            .filter(|&&(arg_i, _)| matches!(arg_classes[arg_i], CallArgClass::F128Reg { .. }) && matches!(&args[arg_i], Operand::Value(_)))
+        let f128_var_count: usize = fp_reg_assignments
+            .iter()
+            .filter(|&&(arg_i, _)| {
+                matches!(arg_classes[arg_i], CallArgClass::F128Reg { .. })
+                    && matches!(&args[arg_i], Operand::Value(_))
+            })
             .count();
         let f128_temp_space_aligned = (f128_var_count * 16 + 15) & !15;
         if f128_temp_space_aligned > 0 {
@@ -1313,21 +1573,33 @@ impl ArmCodegen {
 
         let extra_sp_adj = f128_temp_space_aligned as i64;
         let f128_temp_slots = self.emit_call_f128_var_args(
-            args, arg_classes, &fp_reg_assignments, slot_adjust, extra_sp_adj, needs_adjusted_load,
+            args,
+            arg_classes,
+            &fp_reg_assignments,
+            slot_adjust,
+            extra_sp_adj,
+            needs_adjusted_load,
         );
 
         self.emit_call_f128_const_args(args, arg_classes, &fp_reg_assignments);
 
         for &(reg_i, temp_off) in &f128_temp_slots {
-            self.state.emit_fmt(format_args!("    ldr q{}, [sp, #{}]", reg_i, temp_off));
+            self.state
+                .emit_fmt(format_args!("    ldr q{}, [sp, #{}]", reg_i, temp_off));
         }
         if f128_temp_space_aligned > 0 {
             self.emit_add_sp(f128_temp_space_aligned as i64);
         }
 
         for &(arg_i, reg_i) in &fp_reg_assignments {
-            if matches!(arg_classes[arg_i], CallArgClass::F128Reg { .. }) { continue; }
-            let arg_ty = if arg_i < arg_types.len() { Some(arg_types[arg_i]) } else { None };
+            if matches!(arg_classes[arg_i], CallArgClass::F128Reg { .. }) {
+                continue;
+            }
+            let arg_ty = if arg_i < arg_types.len() {
+                Some(arg_types[arg_i])
+            } else {
+                None
+            };
             self.emit_load_arg_to_reg(&args[arg_i], "x0", slot_adjust, 0, needs_adjusted_load);
             if arg_ty == Some(IrType::F32) {
                 self.state.emit_fmt(format_args!("    fmov s{}, w0", reg_i));
@@ -1338,26 +1610,40 @@ impl ArmCodegen {
     }
 
     /// Convert F128 variable args to full-precision f128, saving to temp stack.
-    pub(super) fn emit_call_f128_var_args(&mut self, args: &[Operand], arg_classes: &[CallArgClass],
-                                fp_reg_assignments: &[(usize, usize)],
-                                slot_adjust: i64, extra_sp_adj: i64,
-                                needs_adjusted_load: bool) -> Vec<(usize, usize)> {
+    pub(super) fn emit_call_f128_var_args(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+        fp_reg_assignments: &[(usize, usize)],
+        slot_adjust: i64,
+        extra_sp_adj: i64,
+        needs_adjusted_load: bool,
+    ) -> Vec<(usize, usize)> {
         let mut f128_temp_idx = 0usize;
         let mut f128_temp_slots: Vec<(usize, usize)> = Vec::new();
         for &(arg_i, reg_i) in fp_reg_assignments {
-            if !matches!(arg_classes[arg_i], CallArgClass::F128Reg { .. }) { continue; }
+            if !matches!(arg_classes[arg_i], CallArgClass::F128Reg { .. }) {
+                continue;
+            }
             if let Operand::Value(v) = &args[arg_i] {
                 let temp_off = f128_temp_idx * 16;
-                let loaded_full = self.try_load_f128_full_precision(v.0, slot_adjust + extra_sp_adj, temp_off);
+                let loaded_full =
+                    self.try_load_f128_full_precision(v.0, slot_adjust + extra_sp_adj, temp_off);
 
                 if !loaded_full {
-                    self.emit_load_arg_to_reg(&args[arg_i], "x0", slot_adjust, extra_sp_adj,
-                        needs_adjusted_load || extra_sp_adj > 0);
+                    self.emit_load_arg_to_reg(
+                        &args[arg_i],
+                        "x0",
+                        slot_adjust,
+                        extra_sp_adj,
+                        needs_adjusted_load || extra_sp_adj > 0,
+                    );
                     self.state.emit("    fmov d0, x0");
                     self.state.emit("    stp x9, x10, [sp, #-16]!");
                     self.state.emit("    bl __extenddftf2");
                     self.state.emit("    ldp x9, x10, [sp], #16");
-                    self.state.emit_fmt(format_args!("    str q0, [sp, #{}]", temp_off));
+                    self.state
+                        .emit_fmt(format_args!("    str q0, [sp, #{}]", temp_off));
                 }
 
                 f128_temp_slots.push((reg_i, temp_off));
@@ -1368,13 +1654,19 @@ impl ArmCodegen {
     }
 
     /// Try to load a full-precision f128 value via f128 tracking. Returns true if successful.
-    pub(super) fn try_load_f128_full_precision(&mut self, value_id: u32, adjusted_slot_base: i64, temp_off: usize) -> bool {
+    pub(super) fn try_load_f128_full_precision(
+        &mut self,
+        value_id: u32,
+        adjusted_slot_base: i64,
+        temp_off: usize,
+    ) -> bool {
         if let Some((src_id, offset, is_indirect)) = self.state.get_f128_source(value_id) {
             if !is_indirect {
                 if let Some(src_slot) = self.state.get_slot(src_id) {
                     let adj = src_slot.0 + offset + adjusted_slot_base;
                     self.emit_load_from_sp("q0", adj, "ldr");
-                    self.state.emit_fmt(format_args!("    str q0, [sp, #{}]", temp_off));
+                    self.state
+                        .emit_fmt(format_args!("    str q0, [sp, #{}]", temp_off));
                     return true;
                 }
             } else if let Some(src_slot) = self.state.get_slot(src_id) {
@@ -1382,14 +1674,16 @@ impl ArmCodegen {
                 self.emit_load_from_sp("x17", adj, "ldr");
                 if offset != 0 {
                     if offset > 0 && offset <= 4095 {
-                        self.state.emit_fmt(format_args!("    add x17, x17, #{}", offset));
+                        self.state
+                            .emit_fmt(format_args!("    add x17, x17, #{}", offset));
                     } else {
                         self.load_large_imm("x16", offset);
                         self.state.emit("    add x17, x17, x16");
                     }
                 }
                 self.state.emit("    ldr q0, [x17]");
-                self.state.emit_fmt(format_args!("    str q0, [sp, #{}]", temp_off));
+                self.state
+                    .emit_fmt(format_args!("    str q0, [sp, #{}]", temp_off));
                 return true;
             }
         }
@@ -1397,10 +1691,16 @@ impl ArmCodegen {
     }
 
     /// Load F128 constants directly into target Q registers using full f128 bytes.
-    pub(super) fn emit_call_f128_const_args(&mut self, args: &[Operand], arg_classes: &[CallArgClass],
-                                  fp_reg_assignments: &[(usize, usize)]) {
+    pub(super) fn emit_call_f128_const_args(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+        fp_reg_assignments: &[(usize, usize)],
+    ) {
         for &(arg_i, reg_i) in fp_reg_assignments {
-            if !matches!(arg_classes[arg_i], CallArgClass::F128Reg { .. }) { continue; }
+            if !matches!(arg_classes[arg_i], CallArgClass::F128Reg { .. }) {
+                continue;
+            }
             if let Operand::Const(c) = &args[arg_i] {
                 let bytes = match c {
                     IrConst::LongDouble(_, f128_bytes) => *f128_bytes,
@@ -1414,20 +1714,27 @@ impl ArmCodegen {
                 self.emit_load_imm64("x0", lo as i64);
                 self.emit_load_imm64("x1", hi as i64);
                 self.state.emit("    stp x0, x1, [sp, #-16]!");
-                self.state.emit_fmt(format_args!("    ldr q{}, [sp]", reg_i));
+                self.state
+                    .emit_fmt(format_args!("    ldr q{}, [sp]", reg_i));
                 self.state.emit("    add sp, sp, #16");
             }
         }
     }
 
     /// Phase 3: Move GP int args from temp regs to actual arg registers.
-    pub(super) fn emit_call_move_temps_to_arg_regs(&mut self, args: &[Operand], arg_classes: &[CallArgClass]) {
+    pub(super) fn emit_call_move_temps_to_arg_regs(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+    ) {
         let mut int_reg_idx = 0usize;
         let mut gp_tmp_idx = 0usize;
         for (i, _) in args.iter().enumerate() {
             match arg_classes[i] {
                 CallArgClass::I128RegPair { .. } => {
-                    if !int_reg_idx.is_multiple_of(2) { int_reg_idx += 1; }
+                    if !int_reg_idx.is_multiple_of(2) {
+                        int_reg_idx += 1;
+                    }
                     int_reg_idx += 2;
                 }
                 CallArgClass::StructByValReg { size, .. } => {
@@ -1435,7 +1742,10 @@ impl ArmCodegen {
                 }
                 CallArgClass::IntReg { .. } => {
                     if gp_tmp_idx < 8 && int_reg_idx < 8 {
-                        self.state.emit_fmt(format_args!("    mov {}, {}", ARM_ARG_REGS[int_reg_idx], ARM_TMP_REGS[gp_tmp_idx]));
+                        self.state.emit_fmt(format_args!(
+                            "    mov {}, {}",
+                            ARM_ARG_REGS[int_reg_idx], ARM_TMP_REGS[gp_tmp_idx]
+                        ));
                         int_reg_idx += 1;
                     }
                     gp_tmp_idx += 1;
@@ -1446,33 +1756,58 @@ impl ArmCodegen {
     }
 
     /// Phase 3b: Load i128 register pair args into paired arg registers.
-    pub(super) fn emit_call_i128_reg_args(&mut self, args: &[Operand], arg_classes: &[CallArgClass],
-                                slot_adjust: i64, needs_adjusted_load: bool) {
+    pub(super) fn emit_call_i128_reg_args(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+        slot_adjust: i64,
+        needs_adjusted_load: bool,
+    ) {
         for (i, arg) in args.iter().enumerate() {
             if let CallArgClass::I128RegPair { base_reg_idx } = arg_classes[i] {
                 match arg {
                     Operand::Value(v) => {
                         if let Some(slot) = self.state.get_slot(v.0) {
-                            let adj = if needs_adjusted_load { slot.0 + slot_adjust } else { slot.0 };
+                            let adj = if needs_adjusted_load {
+                                slot.0 + slot_adjust
+                            } else {
+                                slot.0
+                            };
                             if self.state.is_alloca(v.0) {
                                 self.emit_alloca_addr(ARM_ARG_REGS[base_reg_idx], v.0, adj);
-                                self.state.emit_fmt(format_args!("    mov {}, #0", ARM_ARG_REGS[base_reg_idx + 1]));
+                                self.state.emit_fmt(format_args!(
+                                    "    mov {}, #0",
+                                    ARM_ARG_REGS[base_reg_idx + 1]
+                                ));
                             } else {
                                 self.emit_load_from_sp(ARM_ARG_REGS[base_reg_idx], adj, "ldr");
-                                self.emit_load_from_sp(ARM_ARG_REGS[base_reg_idx + 1], adj + 8, "ldr");
+                                self.emit_load_from_sp(
+                                    ARM_ARG_REGS[base_reg_idx + 1],
+                                    adj + 8,
+                                    "ldr",
+                                );
                             }
                         }
                     }
                     Operand::Const(c) => {
                         if let IrConst::I128(v) = c {
                             self.emit_load_imm64(ARM_ARG_REGS[base_reg_idx], *v as u64 as i64);
-                            self.emit_load_imm64(ARM_ARG_REGS[base_reg_idx + 1], (*v >> 64) as u64 as i64);
+                            self.emit_load_imm64(
+                                ARM_ARG_REGS[base_reg_idx + 1],
+                                (*v >> 64) as u64 as i64,
+                            );
                         } else {
                             self.operand_to_x0(arg);
                             if base_reg_idx != 0 {
-                                self.state.emit_fmt(format_args!("    mov {}, x0", ARM_ARG_REGS[base_reg_idx]));
+                                self.state.emit_fmt(format_args!(
+                                    "    mov {}, x0",
+                                    ARM_ARG_REGS[base_reg_idx]
+                                ));
                             }
-                            self.state.emit_fmt(format_args!("    mov {}, #0", ARM_ARG_REGS[base_reg_idx + 1]));
+                            self.state.emit_fmt(format_args!(
+                                "    mov {}, #0",
+                                ARM_ARG_REGS[base_reg_idx + 1]
+                            ));
                         }
                     }
                 }
@@ -1482,22 +1817,37 @@ impl ArmCodegen {
 
     /// Phase 3c: Load struct-by-value register args. Loads pointer into x17,
     /// then reads struct data from [x17] into arg regs.
-    pub(super) fn emit_call_struct_byval_reg_args(&mut self, args: &[Operand], arg_classes: &[CallArgClass],
-                                        slot_adjust: i64, needs_adjusted_load: bool) {
+    pub(super) fn emit_call_struct_byval_reg_args(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+        slot_adjust: i64,
+        needs_adjusted_load: bool,
+    ) {
         for (i, arg) in args.iter().enumerate() {
             if let CallArgClass::StructByValReg { base_reg_idx, size } = arg_classes[i] {
                 let regs_needed = if size <= 8 { 1 } else { 2 };
                 self.emit_load_arg_to_reg(arg, "x17", slot_adjust, 0, needs_adjusted_load);
-                self.state.emit_fmt(format_args!("    ldr {}, [x17]", ARM_ARG_REGS[base_reg_idx]));
+                self.state.emit_fmt(format_args!(
+                    "    ldr {}, [x17]",
+                    ARM_ARG_REGS[base_reg_idx]
+                ));
                 if regs_needed > 1 {
-                    self.state.emit_fmt(format_args!("    ldr {}, [x17, #8]", ARM_ARG_REGS[base_reg_idx + 1]));
+                    self.state.emit_fmt(format_args!(
+                        "    ldr {}, [x17, #8]",
+                        ARM_ARG_REGS[base_reg_idx + 1]
+                    ));
                 }
             }
         }
     }
 
     /// Resolve param alloca to (slot, type) for parameter `i`.
-    fn resolve_param_slot(&self, func: &IrFunction, i: usize) -> Option<(StackSlot, IrType, Value)> {
+    fn resolve_param_slot(
+        &self,
+        func: &IrFunction,
+        i: usize,
+    ) -> Option<(StackSlot, IrType, Value)> {
         let (dest, ty) = find_param_alloca(func, i)?;
         let slot = self.state.get_slot(dest.0)?;
         Some((slot, ty, dest))
@@ -1528,7 +1878,9 @@ impl ArmCodegen {
 
         for (i, _) in func.params.iter().enumerate() {
             let class = param_classes[i];
-            if !class.uses_gp_reg() { continue; }
+            if !class.uses_gp_reg() {
+                continue;
+            }
 
             let (slot, ty, _) = match self.resolve_param_slot(func, i) {
                 Some(v) => v,
@@ -1541,26 +1893,42 @@ impl ArmCodegen {
                         // sret pointer: comes in x8 on AArch64
                         self.emit_store_to_sp("x8", slot.0, "str");
                     } else {
-                        let actual_idx = if reg_idx >= sret_shift { reg_idx - sret_shift } else { reg_idx };
+                        let actual_idx = if reg_idx >= sret_shift {
+                            reg_idx - sret_shift
+                        } else {
+                            reg_idx
+                        };
                         let store_instr = Self::str_for_type(ty);
                         let reg = Self::reg_for_type(ARM_ARG_REGS[actual_idx], ty);
                         self.emit_store_to_sp(reg, slot.0, store_instr);
                     }
                 }
                 ParamClass::I128RegPair { base_reg_idx } => {
-                    let actual_idx = if base_reg_idx >= sret_shift { base_reg_idx - sret_shift } else { base_reg_idx };
+                    let actual_idx = if base_reg_idx >= sret_shift {
+                        base_reg_idx - sret_shift
+                    } else {
+                        base_reg_idx
+                    };
                     self.emit_store_to_sp(ARM_ARG_REGS[actual_idx], slot.0, "str");
                     self.emit_store_to_sp(ARM_ARG_REGS[actual_idx + 1], slot.0 + 8, "str");
                 }
                 ParamClass::StructByValReg { base_reg_idx, size } => {
-                    let actual_idx = if base_reg_idx >= sret_shift { base_reg_idx - sret_shift } else { base_reg_idx };
+                    let actual_idx = if base_reg_idx >= sret_shift {
+                        base_reg_idx - sret_shift
+                    } else {
+                        base_reg_idx
+                    };
                     self.emit_store_to_sp(ARM_ARG_REGS[actual_idx], slot.0, "str");
                     if size > 8 {
                         self.emit_store_to_sp(ARM_ARG_REGS[actual_idx + 1], slot.0 + 8, "str");
                     }
                 }
                 ParamClass::LargeStructByRefReg { reg_idx, size } => {
-                    let actual_idx = if reg_idx >= sret_shift { reg_idx - sret_shift } else { reg_idx };
+                    let actual_idx = if reg_idx >= sret_shift {
+                        reg_idx - sret_shift
+                    } else {
+                        reg_idx
+                    };
                     let src_reg = ARM_ARG_REGS[actual_idx];
                     let n_dwords = size.div_ceil(8);
                     for qi in 0..n_dwords {
@@ -1577,8 +1945,7 @@ impl ArmCodegen {
     /// Phase 2: Store FP register params to alloca slots.
     pub(super) fn emit_store_fp_params(&mut self, func: &IrFunction, param_classes: &[ParamClass]) {
         let has_f128_fp_params = param_classes.iter().enumerate().any(|(i, c)| {
-            matches!(c, ParamClass::F128FpReg { .. }) &&
-            find_param_alloca(func, i).is_some()
+            matches!(c, ParamClass::F128FpReg { .. }) && find_param_alloca(func, i).is_some()
         });
 
         if has_f128_fp_params {
@@ -1592,7 +1959,8 @@ impl ArmCodegen {
     fn emit_store_fp_params_with_f128(&mut self, func: &IrFunction, param_classes: &[ParamClass]) {
         self.emit_sub_sp(128);
         for i in 0..8usize {
-            self.state.emit_fmt(format_args!("    str q{}, [sp, #{}]", i, i * 16));
+            self.state
+                .emit_fmt(format_args!("    str q{}, [sp, #{}]", i, i * 16));
         }
 
         // Process non-F128 float params first (from saved Q area).
@@ -1607,10 +1975,12 @@ impl ArmCodegen {
             };
             let fp_reg_off = (reg_idx * 16) as i64;
             if ty == IrType::F32 {
-                self.state.emit_fmt(format_args!("    ldr s0, [sp, #{}]", fp_reg_off));
+                self.state
+                    .emit_fmt(format_args!("    ldr s0, [sp, #{}]", fp_reg_off));
                 self.state.emit("    fmov w9, s0");
             } else {
-                self.state.emit_fmt(format_args!("    ldr d0, [sp, #{}]", fp_reg_off));
+                self.state
+                    .emit_fmt(format_args!("    ldr d0, [sp, #{}]", fp_reg_off));
                 self.state.emit("    fmov x9, d0");
             }
             self.emit_store_to_sp("x9", slot.0 + 128, "str");
@@ -1627,7 +1997,8 @@ impl ArmCodegen {
                 None => continue,
             };
             let fp_reg_off = (reg_idx * 16) as i64;
-            self.state.emit_fmt(format_args!("    ldr q0, [sp, #{}]", fp_reg_off));
+            self.state
+                .emit_fmt(format_args!("    ldr q0, [sp, #{}]", fp_reg_off));
             self.emit_store_to_sp("q0", slot.0 + 128, "str");
             self.state.track_f128_self(dest_val.0);
             self.state.emit("    bl __trunctfdf2");
@@ -1652,9 +2023,11 @@ impl ArmCodegen {
                 None => continue,
             };
             if ty == IrType::F32 {
-                self.state.emit_fmt(format_args!("    fmov w9, s{}", reg_idx));
+                self.state
+                    .emit_fmt(format_args!("    fmov w9, s{}", reg_idx));
             } else {
-                self.state.emit_fmt(format_args!("    fmov x9, d{}", reg_idx));
+                self.state
+                    .emit_fmt(format_args!("    fmov x9, d{}", reg_idx));
             }
             self.emit_store_to_sp("x9", slot.0, "str");
         }
@@ -1664,11 +2037,17 @@ impl ArmCodegen {
     /// Uses x9/w9 as scratch instead of x0/w0 to avoid clobbering GP argument
     /// registers (x0-x7) that may not have been spilled yet (e.g. when mem2reg
     /// promoted their allocas and emit_param_ref will read them later).
-    pub(super) fn emit_store_stack_params(&mut self, func: &IrFunction, param_classes: &[ParamClass]) {
+    pub(super) fn emit_store_stack_params(
+        &mut self,
+        func: &IrFunction,
+        param_classes: &[ParamClass],
+    ) {
         let frame_size = self.current_frame_size;
         for (i, _) in func.params.iter().enumerate() {
             let class = param_classes[i];
-            if !class.is_stack() { continue; }
+            if !class.is_stack() {
+                continue;
+            }
 
             let (slot, ty, dest_val) = match self.resolve_param_slot(func, i) {
                 Some(v) => v,
@@ -1676,7 +2055,8 @@ impl ArmCodegen {
             };
 
             match class {
-                ParamClass::StructStack { offset, size } | ParamClass::LargeStructStack { offset, size } => {
+                ParamClass::StructStack { offset, size }
+                | ParamClass::LargeStructStack { offset, size } => {
                     let caller_offset = frame_size + offset;
                     for qi in 0..size.div_ceil(8) {
                         let off = qi as i64 * 8;
@@ -1728,8 +2108,12 @@ pub(super) const ARM_ARG_REGS: [&str; 8] = ["x0", "x1", "x2", "x3", "x4", "x5", 
 const ARM_TMP_REGS: [&str; 8] = ["x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16"];
 
 impl ArchCodegen for ArmCodegen {
-    fn state(&mut self) -> &mut CodegenState { &mut self.state }
-    fn state_ref(&self) -> &CodegenState { &self.state }
+    fn state(&mut self) -> &mut CodegenState {
+        &mut self.state
+    }
+    fn state_ref(&self) -> &CodegenState {
+        &self.state
+    }
 
     fn get_phys_reg_for_value(&self, val_id: u32) -> Option<PhysReg> {
         self.reg_assignments.get(&val_id).copied()
@@ -1738,7 +2122,8 @@ impl ArchCodegen for ArmCodegen {
     fn emit_reg_to_reg_move(&mut self, src: PhysReg, dest: PhysReg) {
         let s_name = callee_saved_name(src);
         let d_name = callee_saved_name(dest);
-        self.state.emit_fmt(format_args!("    mov {}, {}", d_name, s_name));
+        self.state
+            .emit_fmt(format_args!("    mov {}, {}", d_name, s_name));
     }
 
     fn emit_acc_to_phys_reg(&mut self, dest: PhysReg) {
@@ -1746,8 +2131,12 @@ impl ArchCodegen for ArmCodegen {
         self.state.emit_fmt(format_args!("    mov {}, x0", d_name));
     }
 
-    fn jump_mnemonic(&self) -> &'static str { "b" }
-    fn trap_instruction(&self) -> &'static str { "brk #0" }
+    fn jump_mnemonic(&self) -> &'static str {
+        "b"
+    }
+    fn trap_instruction(&self) -> &'static str {
+        "brk #0"
+    }
 
     fn emit_branch_nonzero(&mut self, label: &str) {
         let skip = self.state.fresh_label("skip");
@@ -1761,7 +2150,10 @@ impl ArchCodegen for ArmCodegen {
     }
 
     fn emit_switch_case_branch(&mut self, case_val: i64, label: &str, ty: IrType) {
-        let use_32bit = matches!(ty, IrType::I32 | IrType::U32 | IrType::I16 | IrType::U16 | IrType::I8 | IrType::U8);
+        let use_32bit = matches!(
+            ty,
+            IrType::I32 | IrType::U32 | IrType::I16 | IrType::U16 | IrType::I8 | IrType::U8
+        );
         if use_32bit {
             self.emit_load_imm64("w1", case_val as i32 as i64);
             self.state.emit("    cmp w0, w1");
@@ -1775,7 +2167,13 @@ impl ArchCodegen for ArmCodegen {
         self.state.emit_fmt(format_args!("{}:", skip));
     }
 
-    fn emit_switch_jump_table(&mut self, val: &Operand, cases: &[(i64, BlockId)], default: &BlockId, _ty: IrType) {
+    fn emit_switch_jump_table(
+        &mut self,
+        val: &Operand,
+        cases: &[(i64, BlockId)],
+        default: &BlockId,
+        _ty: IrType,
+    ) {
         use crate::backend::traits::build_jump_table;
         let (table, min_val, range) = build_jump_table(cases, default);
         let table_label = self.state.fresh_label("jt");
@@ -1783,9 +2181,11 @@ impl ArchCodegen for ArmCodegen {
         self.operand_to_x0(val);
         if min_val != 0 {
             if min_val > 0 && min_val <= 4095 {
-                self.state.emit_fmt(format_args!("    sub x0, x0, #{}", min_val));
+                self.state
+                    .emit_fmt(format_args!("    sub x0, x0, #{}", min_val));
             } else if min_val < 0 && (-min_val) <= 4095 {
-                self.state.emit_fmt(format_args!("    add x0, x0, #{}", -min_val));
+                self.state
+                    .emit_fmt(format_args!("    add x0, x0, #{}", -min_val));
             } else {
                 self.load_large_imm("x17", min_val);
                 self.state.emit("    sub x0, x0, x17");
@@ -1801,8 +2201,10 @@ impl ArchCodegen for ArmCodegen {
         self.state.emit_fmt(format_args!("    b.lo {}", range_skip));
         self.state.emit_fmt(format_args!("    b {}", default_label));
         self.state.emit_fmt(format_args!("{}:", range_skip));
-        self.state.emit_fmt(format_args!("    adrp x17, {}", table_label));
-        self.state.emit_fmt(format_args!("    add x17, x17, :lo12:{}", table_label));
+        self.state
+            .emit_fmt(format_args!("    adrp x17, {}", table_label));
+        self.state
+            .emit_fmt(format_args!("    add x17, x17, :lo12:{}", table_label));
         self.state.emit("    ldr w16, [x17, x0, lsl #2]");
         self.state.emit("    add x17, x17, w16, sxtw");
         self.state.emit("    br x17");
@@ -1811,51 +2213,111 @@ impl ArchCodegen for ArmCodegen {
         self.state.emit_fmt(format_args!("{}:", table_label));
         for target in &table {
             let target_label = target.as_label();
-            self.state.emit_fmt(format_args!("    .word {} - {}", target_label, table_label));
+            self.state
+                .emit_fmt(format_args!("    .word {} - {}", target_label, table_label));
         }
         let sect = self.state.current_text_section.clone();
-        self.state.emit_fmt(format_args!(".section {},\"ax\",@progbits", sect));
+        self.state
+            .emit_fmt(format_args!(".section {},\"ax\",@progbits", sect));
         self.state.reg_cache.invalidate_all();
     }
 
-    fn ptr_directive(&self) -> PtrDirective { PtrDirective::Xword }
-    fn function_type_directive(&self) -> &'static str { "%function" }
+    fn ptr_directive(&self) -> PtrDirective {
+        PtrDirective::Xword
+    }
+    fn function_type_directive(&self) -> &'static str {
+        "%function"
+    }
 
     // ---- Standard trait methods (kept inline - arch-specific) ----
-    fn emit_load_operand(&mut self, op: &Operand) { self.operand_to_x0(op); }
-    fn emit_store_result(&mut self, dest: &Value) { self.store_x0_to(dest); }
-    fn emit_save_acc(&mut self) { self.state.emit("    mov x1, x0"); }
-    fn emit_add_secondary_to_acc(&mut self) { self.state.emit("    add x0, x1, x0"); }
-    fn emit_gep_add_const_to_acc(&mut self, offset: i64) { if offset != 0 { self.emit_add_imm_to_acc_impl(offset); } }
-    fn emit_acc_to_secondary(&mut self) { self.state.emit("    mov x1, x0"); }
-    fn emit_memcpy_store_dest_from_acc(&mut self) { }
-    fn emit_memcpy_store_src_from_acc(&mut self) { self.state.emit("    mov x10, x9"); }
+    fn emit_load_operand(&mut self, op: &Operand) {
+        self.operand_to_x0(op);
+    }
+    fn emit_store_result(&mut self, dest: &Value) {
+        self.store_x0_to(dest);
+    }
+    fn emit_save_acc(&mut self) {
+        self.state.emit("    mov x1, x0");
+    }
+    fn emit_add_secondary_to_acc(&mut self) {
+        self.state.emit("    add x0, x1, x0");
+    }
+    fn emit_gep_add_const_to_acc(&mut self, offset: i64) {
+        if offset != 0 {
+            self.emit_add_imm_to_acc_impl(offset);
+        }
+    }
+    fn emit_acc_to_secondary(&mut self) {
+        self.state.emit("    mov x1, x0");
+    }
+    fn emit_memcpy_store_dest_from_acc(&mut self) {}
+    fn emit_memcpy_store_src_from_acc(&mut self) {
+        self.state.emit("    mov x10, x9");
+    }
     fn emit_call_spill_fptr(&mut self, func_ptr: &Operand) {
         self.operand_to_x0(func_ptr);
         self.state.emit("    str x0, [sp, #-16]!");
     }
-    fn emit_call_fptr_spill_size(&self) -> usize { 16 }
-    fn emit_call_move_f32_to_acc(&mut self) { self.state.emit("    fmov w0, s0"); }
-    fn emit_call_move_f64_to_acc(&mut self) { self.state.emit("    fmov x0, d0"); }
+    fn emit_call_fptr_spill_size(&self) -> usize {
+        16
+    }
+    fn emit_call_move_f32_to_acc(&mut self) {
+        self.state.emit("    fmov w0, s0");
+    }
+    fn emit_call_move_f64_to_acc(&mut self) {
+        self.state.emit("    fmov x0, d0");
+    }
 
     // AArch64 ABI: sret pointer goes in x8, not x0.
-    fn sret_uses_dedicated_reg(&self) -> bool { true }
+    fn sret_uses_dedicated_reg(&self) -> bool {
+        true
+    }
     fn emit_call_sret_setup(&mut self, sret_operand: &Operand, total_sp_adjust: i64) {
-        let slot_adjust = if self.state.has_dyn_alloca { 0 } else { total_sp_adjust };
+        let slot_adjust = if self.state.has_dyn_alloca {
+            0
+        } else {
+            total_sp_adjust
+        };
         let needs_adjusted = total_sp_adjust > 0;
         self.emit_load_arg_to_reg(sret_operand, "x8", slot_adjust, 0, needs_adjusted);
     }
 
     // ---- Inline asm / intrinsics (kept inline - has extra logic) ----
-    fn emit_inline_asm(&mut self, template: &str, outputs: &[(String, Value, Option<String>)], inputs: &[(String, Operand, Option<String>)], clobbers: &[String], operand_types: &[IrType], goto_labels: &[(String, BlockId)], input_symbols: &[Option<String>]) {
-        emit_inline_asm_common(self, template, outputs, inputs, clobbers, operand_types, goto_labels, input_symbols);
+    fn emit_inline_asm(
+        &mut self,
+        template: &str,
+        outputs: &[(String, Value, Option<String>)],
+        inputs: &[(String, Operand, Option<String>)],
+        clobbers: &[String],
+        operand_types: &[IrType],
+        goto_labels: &[(String, BlockId)],
+        input_symbols: &[Option<String>],
+    ) {
+        emit_inline_asm_common(
+            self,
+            template,
+            outputs,
+            inputs,
+            clobbers,
+            operand_types,
+            goto_labels,
+            input_symbols,
+        );
     }
-    fn emit_intrinsic(&mut self, dest: &Option<Value>, op: &IntrinsicOp, dest_ptr: &Option<Value>, args: &[Operand]) {
+    fn emit_intrinsic(
+        &mut self,
+        dest: &Option<Value>,
+        op: &IntrinsicOp,
+        dest_ptr: &Option<Value>,
+        args: &[Operand],
+    ) {
         self.emit_intrinsic_arm(dest, op, dest_ptr, args);
     }
 
     // ---- Float binop body uses different name ----
-    fn emit_float_binop_impl(&mut self, mnemonic: &str, ty: IrType) { self.emit_float_binop_body(mnemonic, ty) }
+    fn emit_float_binop_impl(&mut self, mnemonic: &str, ty: IrType) {
+        self.emit_float_binop_body(mnemonic, ty)
+    }
 
     // All remaining methods delegate to self.method_name_impl(args...)
     delegate_to_impl! {
@@ -1996,4 +2458,3 @@ impl Default for ArmCodegen {
         Self::new()
     }
 }
-

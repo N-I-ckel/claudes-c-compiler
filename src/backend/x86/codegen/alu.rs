@@ -1,8 +1,8 @@
 //! X86Codegen: integer/float arithmetic, unary ops, binop, copy.
 
-use crate::ir::reexports::{IrBinOp, Operand, Value};
+use super::emit::{shift_mnemonic, X86Codegen};
 use crate::common::types::IrType;
-use super::emit::{X86Codegen, shift_mnemonic};
+use crate::ir::reexports::{IrBinOp, Operand, Value};
 
 impl X86Codegen {
     // ---- Unary ----
@@ -67,14 +67,28 @@ impl X86Codegen {
 
     // ---- Binop ----
 
-    pub(super) fn emit_int_binop_impl(&mut self, dest: &Value, op: IrBinOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_int_binop_impl(
+        &mut self,
+        dest: &Value,
+        op: IrBinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         let use_32bit = ty == IrType::I32 || ty == IrType::U32;
         let is_unsigned = ty.is_unsigned();
 
         // Register-direct path
         if let Some(dest_phys) = self.dest_reg(dest) {
-            let is_simple_alu = matches!(op, IrBinOp::Add | IrBinOp::Sub | IrBinOp::And
-                | IrBinOp::Or | IrBinOp::Xor | IrBinOp::Mul);
+            let is_simple_alu = matches!(
+                op,
+                IrBinOp::Add
+                    | IrBinOp::Sub
+                    | IrBinOp::And
+                    | IrBinOp::Or
+                    | IrBinOp::Xor
+                    | IrBinOp::Mul
+            );
             if is_simple_alu {
                 self.emit_alu_reg_direct(op, lhs, rhs, dest_phys, use_32bit, is_unsigned);
                 return;
@@ -103,10 +117,14 @@ impl X86Codegen {
                     _ => unreachable!("unexpected i64 binop: {:?}", op),
                 };
                 if use_32bit {
-                    self.state.emit_fmt(format_args!("    {}l %ecx, %eax", mnem));
-                    if !is_unsigned { self.state.emit("    cltq"); }
+                    self.state
+                        .emit_fmt(format_args!("    {}l %ecx, %eax", mnem));
+                    if !is_unsigned {
+                        self.state.emit("    cltq");
+                    }
                 } else {
-                    self.state.emit_fmt(format_args!("    {}q %rcx, %rax", mnem));
+                    self.state
+                        .emit_fmt(format_args!("    {}q %rcx, %rax", mnem));
                 }
             }
             IrBinOp::SDiv => {
@@ -121,8 +139,11 @@ impl X86Codegen {
             }
             IrBinOp::UDiv => {
                 self.state.emit("    xorl %edx, %edx");
-                if use_32bit { self.state.emit("    divl %ecx"); }
-                else { self.state.emit("    divq %rcx"); }
+                if use_32bit {
+                    self.state.emit("    divl %ecx");
+                } else {
+                    self.state.emit("    divq %rcx");
+                }
             }
             IrBinOp::SRem => {
                 if use_32bit {
@@ -152,10 +173,14 @@ impl X86Codegen {
             IrBinOp::Shl | IrBinOp::AShr | IrBinOp::LShr => {
                 let (mnem32, mnem64) = shift_mnemonic(op);
                 if use_32bit {
-                    self.state.emit_fmt(format_args!("    {} %cl, %eax", mnem32));
-                    if !is_unsigned && op != IrBinOp::LShr { self.state.emit("    cltq"); }
+                    self.state
+                        .emit_fmt(format_args!("    {} %cl, %eax", mnem32));
+                    if !is_unsigned && op != IrBinOp::LShr {
+                        self.state.emit("    cltq");
+                    }
                 } else {
-                    self.state.emit_fmt(format_args!("    {} %cl, %rax", mnem64));
+                    self.state
+                        .emit_fmt(format_args!("    {} %cl, %rax", mnem64));
                 }
             }
         }

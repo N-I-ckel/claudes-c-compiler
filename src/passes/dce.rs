@@ -12,11 +12,7 @@
 //! for removal), giving O(n) complexity instead of O(n*k) where k is the
 //! maximum dead chain length.
 
-use crate::ir::reexports::{
-    Instruction,
-    IrFunction,
-    Operand,
-};
+use crate::ir::reexports::{Instruction, IrFunction, Operand};
 
 /// Eliminate dead code in a single function using use-count-based worklist DCE.
 ///
@@ -77,7 +73,9 @@ pub(crate) fn eliminate_dead_code(func: &mut IrFunction) -> usize {
 
     // Step 2: Build def-map and identify initially-dead instructions.
     // dead[block_idx][inst_idx] = true means instruction should be removed.
-    let mut dead: Vec<Vec<bool>> = func.blocks.iter()
+    let mut dead: Vec<Vec<bool>> = func
+        .blocks
+        .iter()
         .map(|b| vec![false; b.instructions.len()])
         .collect();
 
@@ -211,7 +209,8 @@ fn eliminate_dead_code_simple(func: &mut IrFunction, max_id: usize) -> usize {
         let mut removed = 0;
         for block in &mut func.blocks {
             let original_len = block.instructions.len();
-            let has_spans = block.source_spans.len() == original_len && !block.source_spans.is_empty();
+            let has_spans =
+                block.source_spans.len() == original_len && !block.source_spans.is_empty();
 
             if has_spans {
                 let mut write_idx = 0;
@@ -261,7 +260,8 @@ fn is_live(inst: &Instruction, used: &[bool]) -> bool {
 
 /// Check if an instruction has side effects (must not be removed).
 fn has_side_effects(inst: &Instruction) -> bool {
-    matches!(inst,
+    matches!(
+        inst,
         // Alloca must never be removed: codegen uses positional indexing
         // (find_param_alloca) to map function parameters to their stack slots.
         // Removing unused parameter allocas shifts indices and causes miscompilation.
@@ -299,7 +299,9 @@ fn has_side_effects(inst: &Instruction) -> bool {
 mod tests {
     use super::*;
     use crate::common::types::{AddressSpace, IrType};
-    use crate::ir::reexports::{BasicBlock, BlockId, CallInfo, IrBinOp, IrConst, Terminator, Value};
+    use crate::ir::reexports::{
+        BasicBlock, BlockId, CallInfo, IrBinOp, IrConst, Terminator, Value,
+    };
 
     fn make_simple_func() -> IrFunction {
         // Function with: %0 = alloca i32, %1 = add 3, 4 (dead), store 42 to %0, load from %0
@@ -307,7 +309,13 @@ mod tests {
         func.blocks.push(BasicBlock {
             label: BlockId(0),
             instructions: vec![
-                Instruction::Alloca { dest: Value(0), ty: IrType::I32, size: 4, align: 0, volatile: false },
+                Instruction::Alloca {
+                    dest: Value(0),
+                    ty: IrType::I32,
+                    size: 4,
+                    align: 0,
+                    volatile: false,
+                },
                 // Dead instruction: result %1 is never used
                 Instruction::BinOp {
                     dest: Value(1),
@@ -316,8 +324,18 @@ mod tests {
                     rhs: Operand::Const(IrConst::I32(4)),
                     ty: IrType::I32,
                 },
-                Instruction::Store { val: Operand::Const(IrConst::I32(42)), ptr: Value(0), ty: IrType::I32, seg_override: AddressSpace::Default },
-                Instruction::Load { dest: Value(2), ptr: Value(0), ty: IrType::I32, seg_override: AddressSpace::Default },
+                Instruction::Store {
+                    val: Operand::Const(IrConst::I32(42)),
+                    ptr: Value(0),
+                    ty: IrType::I32,
+                    seg_override: AddressSpace::Default,
+                },
+                Instruction::Load {
+                    dest: Value(2),
+                    ptr: Value(0),
+                    ty: IrType::I32,
+                    seg_override: AddressSpace::Default,
+                },
             ],
             terminator: Terminator::Return(Some(Operand::Value(Value(2)))),
             source_spans: Vec::new(),
@@ -330,7 +348,7 @@ mod tests {
         let mut func = make_simple_func();
         let removed = eliminate_dead_code(&mut func);
         assert_eq!(removed, 1); // The dead BinOp should be removed
-        // Verify the remaining instructions
+                                // Verify the remaining instructions
         assert_eq!(func.blocks[0].instructions.len(), 3); // alloca, store, load
     }
 
@@ -340,26 +358,24 @@ mod tests {
         let mut func = IrFunction::new("test".to_string(), IrType::Void, vec![], false);
         func.blocks.push(BasicBlock {
             label: BlockId(0),
-            instructions: vec![
-                Instruction::Call {
-                    func: "printf".to_string(),
-                    info: CallInfo {
-                        dest: Some(Value(0)),
-                        args: vec![],
-                        arg_types: vec![],
-                        return_type: IrType::I32,
-                        is_variadic: true,
-                        num_fixed_args: 0,
-                        struct_arg_sizes: vec![],
-                        struct_arg_aligns: vec![],
-                        struct_arg_classes: Vec::new(),
-                        struct_arg_riscv_float_classes: Vec::new(),
-                        is_sret: false,
-                        is_fastcall: false,
-                        ret_eightbyte_classes: Vec::new(),
-                    },
+            instructions: vec![Instruction::Call {
+                func: "printf".to_string(),
+                info: CallInfo {
+                    dest: Some(Value(0)),
+                    args: vec![],
+                    arg_types: vec![],
+                    return_type: IrType::I32,
+                    is_variadic: true,
+                    num_fixed_args: 0,
+                    struct_arg_sizes: vec![],
+                    struct_arg_aligns: vec![],
+                    struct_arg_classes: Vec::new(),
+                    struct_arg_riscv_float_classes: Vec::new(),
+                    is_sret: false,
+                    is_fastcall: false,
+                    ret_eightbyte_classes: Vec::new(),
                 },
-            ],
+            }],
             terminator: Terminator::Return(None),
             source_spans: Vec::new(),
         });
@@ -379,7 +395,13 @@ mod tests {
         func.blocks.push(BasicBlock {
             label: BlockId(0),
             instructions: vec![
-                Instruction::Alloca { dest: Value(0), ty: IrType::I32, size: 4, align: 0, volatile: false },
+                Instruction::Alloca {
+                    dest: Value(0),
+                    ty: IrType::I32,
+                    size: 4,
+                    align: 0,
+                    volatile: false,
+                },
                 Instruction::BinOp {
                     dest: Value(1),
                     op: IrBinOp::Add,
@@ -431,16 +453,14 @@ mod tests {
         // Block 1 (loop header): self-referencing phi, unused
         func.blocks.push(BasicBlock {
             label: BlockId(1),
-            instructions: vec![
-                Instruction::Phi {
-                    dest: Value(0),
-                    ty: IrType::I64,
-                    incoming: vec![
-                        (Operand::Const(IrConst::I64(0)), BlockId(0)),
-                        (Operand::Value(Value(0)), BlockId(2)),  // self-reference
-                    ],
-                },
-            ],
+            instructions: vec![Instruction::Phi {
+                dest: Value(0),
+                ty: IrType::I64,
+                incoming: vec![
+                    (Operand::Const(IrConst::I64(0)), BlockId(0)),
+                    (Operand::Value(Value(0)), BlockId(2)), // self-reference
+                ],
+            }],
             terminator: Terminator::CondBranch {
                 cond: Operand::Const(IrConst::I32(1)),
                 true_label: BlockId(2),
@@ -468,7 +488,9 @@ mod tests {
         let removed = eliminate_dead_code(&mut func);
         assert_eq!(removed, 1, "Self-referencing dead phi should be removed");
         // Loop header should have no instructions left
-        assert!(func.blocks[1].instructions.is_empty(),
-                "Phi should be removed from loop header");
+        assert!(
+            func.blocks[1].instructions.is_empty(),
+            "Phi should be removed from loop header"
+        );
     }
 }

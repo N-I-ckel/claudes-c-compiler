@@ -10,7 +10,7 @@
 //! ignored (matching GCC's behavior for unrecognized `-f` and `-m` flags),
 //! which is critical for build system compatibility.
 
-use super::pipeline::{Driver, CompileMode, CliDefine};
+use super::pipeline::{CliDefine, CompileMode, Driver};
 use crate::backend::Target;
 use crate::common::error::ColorMode;
 
@@ -53,7 +53,8 @@ impl Driver {
         // GCC understands all the same flags we accept, so forwarding them directly
         // preserves ordering semantics (e.g., -fcf-protection=none after =branch).
         if self.code16gcc {
-            self.raw_args = args[1..].iter()
+            self.raw_args = args[1..]
+                .iter()
                 .filter(|a| !self.input_files.contains(a))
                 .cloned()
                 .collect();
@@ -63,7 +64,10 @@ impl Driver {
         // Build systems like Meson run `compiler -Wl,--version` without source files
         // to detect the linker type. Invoke our linker driver (GCC) directly.
         if self.input_files.is_empty()
-            && self.linker_ordered_items.iter().any(|a| a.contains("--version"))
+            && self
+                .linker_ordered_items
+                .iter()
+                .any(|a| a.contains("--version"))
         {
             Self::run_linker_version_query(&self.target, &self.linker_ordered_items);
             return Ok(true);
@@ -129,7 +133,9 @@ impl Driver {
                     // our intrinsic headers (arm_neon.h, emmintrin.h, etc.) instead
                     // of the host GCC's headers which use incompatible builtins.
                     if name == "include" {
-                        if let Some(bundled) = crate::frontend::preprocessor::Preprocessor::bundled_include_dir() {
+                        if let Some(bundled) =
+                            crate::frontend::preprocessor::Preprocessor::bundled_include_dir()
+                        {
                             println!("{}", bundled.display());
                             return Ok(true);
                         }
@@ -437,8 +443,10 @@ impl Driver {
                     // gnu89 and c89 use GNU inline semantics by default;
                     // gnu99+ and c99+ use C99 inline semantics.
                     // Note: -fgnu89-inline can override this later on the command line.
-                    self.gnu89_inline = matches!(std_value, "gnu89" | "c89" | "gnu90" | "c90"
-                        | "iso9899:1990" | "iso9899:199409");
+                    self.gnu89_inline = matches!(
+                        std_value,
+                        "gnu89" | "c89" | "gnu90" | "c90" | "iso9899:1990" | "iso9899:199409"
+                    );
                 }
 
                 // Machine/target flags
@@ -460,8 +468,8 @@ impl Driver {
                     }
                 }
                 "-mno-sse" | "-mno-sse2" | "-mno-mmx" | "-mno-sse3" | "-mno-ssse3"
-                | "-mno-sse4" | "-mno-sse4.1" | "-mno-sse4.2" | "-mno-avx"
-                | "-mno-avx2" | "-mno-avx512f" | "-mno-3dnow" => {
+                | "-mno-sse4" | "-mno-sse4.1" | "-mno-sse4.2" | "-mno-avx" | "-mno-avx2"
+                | "-mno-avx512f" | "-mno-3dnow" => {
                     self.no_sse = true;
                 }
                 // Positive SIMD feature flags: define corresponding macros.
@@ -502,7 +510,8 @@ impl Driver {
                 }
                 "-mgeneral-regs-only" => self.general_regs_only = true,
                 "-mcmodel=kernel" => self.code_model_kernel = true,
-                "-mcmodel=small" | "-mcmodel=medlow" | "-mcmodel=medium" | "-mcmodel=medany" | "-mcmodel=large" => {
+                "-mcmodel=small" | "-mcmodel=medlow" | "-mcmodel=medium" | "-mcmodel=medany"
+                | "-mcmodel=large" => {
                     self.code_model_kernel = false;
                 }
                 arg if arg.starts_with("-mabi=") => {
@@ -529,18 +538,26 @@ impl Driver {
                 // Feature flags
                 "-fPIC" | "-fpic" | "-fPIE" | "-fpie" => self.pic = true,
                 "-fno-PIC" | "-fno-pic" | "-fno-PIE" | "-fno-pie" => self.pic = false,
-                "-fcf-protection=branch" | "-fcf-protection=full" => self.cf_protection_branch = true,
+                "-fcf-protection=branch" | "-fcf-protection=full" => {
+                    self.cf_protection_branch = true
+                }
                 "-fcf-protection=none" => self.cf_protection_branch = false,
                 arg if arg.starts_with("-fpatchable-function-entry=") => {
                     let val = &arg["-fpatchable-function-entry=".len()..];
                     let parts: Vec<&str> = val.split(',').collect();
                     let total: u32 = parts[0].parse().unwrap_or(0);
-                    let before: u32 = if parts.len() > 1 { parts[1].parse().unwrap_or(0) } else { 0 };
+                    let before: u32 = if parts.len() > 1 {
+                        parts[1].parse().unwrap_or(0)
+                    } else {
+                        0
+                    };
                     self.patchable_function_entry = Some((total, before));
                 }
                 "-fomit-frame-pointer" => self.omit_frame_pointer = true,
                 "-fno-omit-frame-pointer" => self.omit_frame_pointer = false,
-                "-fno-asynchronous-unwind-tables" | "-fno-unwind-tables" => self.no_unwind_tables = true,
+                "-fno-asynchronous-unwind-tables" | "-fno-unwind-tables" => {
+                    self.no_unwind_tables = true
+                }
                 "-fasynchronous-unwind-tables" | "-funwind-tables" => self.no_unwind_tables = false,
                 "-fno-jump-tables" => self.no_jump_tables = true,
                 "-ffunction-sections" => self.function_sections = true,

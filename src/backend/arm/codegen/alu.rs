@@ -1,8 +1,8 @@
 //! ArmCodegen: ALU operations (integer arithmetic, bitwise, unary).
 
-use crate::ir::reexports::{IrBinOp, Operand, Value};
+use super::emit::{arm_alu_mnemonic, callee_saved_name, callee_saved_name_32, ArmCodegen};
 use crate::common::types::IrType;
-use super::emit::{ArmCodegen, callee_saved_name, callee_saved_name_32, arm_alu_mnemonic};
+use crate::ir::reexports::{IrBinOp, Operand, Value};
 
 impl ArmCodegen {
     pub(super) fn emit_float_neg_impl(&mut self, ty: IrType) {
@@ -66,7 +66,14 @@ impl ArmCodegen {
         self.state.emit("    fmov w0, s0");
     }
 
-    pub(super) fn emit_int_binop_impl(&mut self, dest: &Value, op: IrBinOp, lhs: &Operand, rhs: &Operand, ty: IrType) {
+    pub(super) fn emit_int_binop_impl(
+        &mut self,
+        dest: &Value,
+        op: IrBinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        ty: IrType,
+    ) {
         let use_32bit = ty == IrType::I32 || ty == IrType::U32;
         let is_unsigned = ty.is_unsigned();
 
@@ -75,9 +82,11 @@ impl ArmCodegen {
             if op == IrBinOp::UDiv {
                 self.operand_to_x0(lhs);
                 if use_32bit {
-                    self.state.emit_fmt(format_args!("    lsr w0, w0, #{}", shift));
+                    self.state
+                        .emit_fmt(format_args!("    lsr w0, w0, #{}", shift));
                 } else {
-                    self.state.emit_fmt(format_args!("    lsr x0, x0, #{}", shift));
+                    self.state
+                        .emit_fmt(format_args!("    lsr x0, x0, #{}", shift));
                 }
                 self.store_x0_to(dest);
                 return;
@@ -86,9 +95,11 @@ impl ArmCodegen {
                 self.operand_to_x0(lhs);
                 let mask = (1u64 << shift) - 1;
                 if use_32bit {
-                    self.state.emit_fmt(format_args!("    and w0, w0, #{}", mask));
+                    self.state
+                        .emit_fmt(format_args!("    and w0, w0, #{}", mask));
                 } else {
-                    self.state.emit_fmt(format_args!("    and x0, x0, #{}", mask));
+                    self.state
+                        .emit_fmt(format_args!("    and x0, x0, #{}", mask));
                 }
                 self.store_x0_to(dest);
                 return;
@@ -100,8 +111,15 @@ impl ArmCodegen {
             let dest_name = callee_saved_name(dest_phys);
             let dest_name_32 = callee_saved_name_32(dest_phys);
 
-            let is_simple_alu = matches!(op, IrBinOp::Add | IrBinOp::Sub | IrBinOp::And
-                | IrBinOp::Or | IrBinOp::Xor | IrBinOp::Mul);
+            let is_simple_alu = matches!(
+                op,
+                IrBinOp::Add
+                    | IrBinOp::Sub
+                    | IrBinOp::And
+                    | IrBinOp::Or
+                    | IrBinOp::Xor
+                    | IrBinOp::Mul
+            );
             if is_simple_alu {
                 let mnemonic = arm_alu_mnemonic(op);
 
@@ -109,10 +127,21 @@ impl ArmCodegen {
                     if let Some(imm) = Self::const_as_imm12(rhs) {
                         self.operand_to_callee_reg(lhs, dest_phys);
                         if use_32bit {
-                            self.state.emit_fmt(format_args!("    {} {}, {}, #{}", mnemonic, dest_name_32, dest_name_32, imm));
-                            if !is_unsigned { self.state.emit_fmt(format_args!("    sxtw {}, {}", dest_name, dest_name_32)); }
+                            self.state.emit_fmt(format_args!(
+                                "    {} {}, {}, #{}",
+                                mnemonic, dest_name_32, dest_name_32, imm
+                            ));
+                            if !is_unsigned {
+                                self.state.emit_fmt(format_args!(
+                                    "    sxtw {}, {}",
+                                    dest_name, dest_name_32
+                                ));
+                            }
                         } else {
-                            self.state.emit_fmt(format_args!("    {} {}, {}, #{}", mnemonic, dest_name, dest_name, imm));
+                            self.state.emit_fmt(format_args!(
+                                "    {} {}, {}, #{}",
+                                mnemonic, dest_name, dest_name, imm
+                            ));
                         }
                         self.state.reg_cache.invalidate_acc();
                         return;
@@ -134,14 +163,26 @@ impl ArmCodegen {
                         "x0".to_string()
                     }
                 };
-                let rhs_32: String = if rhs_reg == "x0" { "w0".to_string() }
-                    else { rhs_reg.replace('x', "w") };
+                let rhs_32: String = if rhs_reg == "x0" {
+                    "w0".to_string()
+                } else {
+                    rhs_reg.replace('x', "w")
+                };
 
                 if use_32bit {
-                    self.state.emit_fmt(format_args!("    {} {}, {}, {}", mnemonic, dest_name_32, dest_name_32, rhs_32));
-                    if !is_unsigned { self.state.emit_fmt(format_args!("    sxtw {}, {}", dest_name, dest_name_32)); }
+                    self.state.emit_fmt(format_args!(
+                        "    {} {}, {}, {}",
+                        mnemonic, dest_name_32, dest_name_32, rhs_32
+                    ));
+                    if !is_unsigned {
+                        self.state
+                            .emit_fmt(format_args!("    sxtw {}, {}", dest_name, dest_name_32));
+                    }
                 } else {
-                    self.state.emit_fmt(format_args!("    {} {}, {}, {}", mnemonic, dest_name, dest_name, rhs_reg));
+                    self.state.emit_fmt(format_args!(
+                        "    {} {}, {}, {}",
+                        mnemonic, dest_name, dest_name, rhs_reg
+                    ));
                 }
                 self.state.reg_cache.invalidate_acc();
                 return;
@@ -158,15 +199,21 @@ impl ArmCodegen {
             match op {
                 IrBinOp::Add => {
                     self.state.emit("    add w0, w1, w2");
-                    if !is_unsigned { self.state.emit("    sxtw x0, w0"); }
+                    if !is_unsigned {
+                        self.state.emit("    sxtw x0, w0");
+                    }
                 }
                 IrBinOp::Sub => {
                     self.state.emit("    sub w0, w1, w2");
-                    if !is_unsigned { self.state.emit("    sxtw x0, w0"); }
+                    if !is_unsigned {
+                        self.state.emit("    sxtw x0, w0");
+                    }
                 }
                 IrBinOp::Mul => {
                     self.state.emit("    mul w0, w1, w2");
-                    if !is_unsigned { self.state.emit("    sxtw x0, w0"); }
+                    if !is_unsigned {
+                        self.state.emit("    sxtw x0, w0");
+                    }
                 }
                 IrBinOp::SDiv => {
                     self.state.emit("    sdiv w0, w1, w2");
@@ -187,11 +234,15 @@ impl ArmCodegen {
                 IrBinOp::Xor => self.state.emit("    eor w0, w1, w2"),
                 IrBinOp::Shl => {
                     self.state.emit("    lsl w0, w1, w2");
-                    if !is_unsigned { self.state.emit("    sxtw x0, w0"); }
+                    if !is_unsigned {
+                        self.state.emit("    sxtw x0, w0");
+                    }
                 }
                 IrBinOp::AShr => {
                     self.state.emit("    asr w0, w1, w2");
-                    if !is_unsigned { self.state.emit("    sxtw x0, w0"); }
+                    if !is_unsigned {
+                        self.state.emit("    sxtw x0, w0");
+                    }
                 }
                 IrBinOp::LShr => self.state.emit("    lsr w0, w1, w2"),
             }

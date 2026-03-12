@@ -1,17 +1,19 @@
 //! X86Codegen: function call operations.
 
-use crate::ir::reexports::{IrConst, Operand, Value};
-use crate::common::types::IrType;
-use crate::backend::call_abi::{CallAbiConfig, CallArgClass, compute_stack_push_bytes};
-use crate::backend::generation::is_i128_type;
 use super::emit::{X86Codegen, X86_ARG_REGS};
+use crate::backend::call_abi::{compute_stack_push_bytes, CallAbiConfig, CallArgClass};
+use crate::backend::generation::is_i128_type;
+use crate::common::types::IrType;
+use crate::ir::reexports::{IrConst, Operand, Value};
 
 impl X86Codegen {
     pub(super) fn call_abi_config_impl(&self) -> CallAbiConfig {
         CallAbiConfig {
-            max_int_regs: 6, max_float_regs: 8,
+            max_int_regs: 6,
+            max_float_regs: 8,
             align_i128_pairs: false,
-            f128_in_fp_regs: false, f128_in_gp_pairs: false,
+            f128_in_fp_regs: false,
+            f128_in_gp_pairs: false,
             variadic_floats_in_gp: false,
             large_struct_by_ref: false,
             use_sysv_struct_classification: true,
@@ -22,12 +24,23 @@ impl X86Codegen {
         }
     }
 
-    pub(super) fn emit_call_compute_stack_space_impl(&self, arg_classes: &[CallArgClass], _arg_types: &[IrType]) -> usize {
+    pub(super) fn emit_call_compute_stack_space_impl(
+        &self,
+        arg_classes: &[CallArgClass],
+        _arg_types: &[IrType],
+    ) -> usize {
         compute_stack_push_bytes(arg_classes)
     }
 
-    pub(super) fn emit_call_stack_args_impl(&mut self, args: &[Operand], arg_classes: &[CallArgClass],
-                            _arg_types: &[IrType], stack_arg_space: usize, _fptr_spill: usize, _f128_temp_space: usize) -> i64 {
+    pub(super) fn emit_call_stack_args_impl(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+        _arg_types: &[IrType],
+        stack_arg_space: usize,
+        _fptr_spill: usize,
+        _f128_temp_space: usize,
+    ) -> i64 {
         let need_align_pad = !stack_arg_space.is_multiple_of(16);
         if need_align_pad {
             self.state.emit("    subq $8, %rsp");
@@ -38,66 +51,69 @@ impl X86Codegen {
             .collect();
         for &si in stack_indices.iter().rev() {
             match arg_classes[si] {
-                CallArgClass::F128Stack => {
-                    match &args[si] {
-                        Operand::Const(ref c) => {
-                            let x87_bytes: [u8; 10] = match c {
-                                IrConst::LongDouble(_, f128_bytes) => {
-                                    let x87 = crate::common::long_double::f128_bytes_to_x87_bytes(f128_bytes);
-                                    let mut b = [0u8; 10];
-                                    b.copy_from_slice(&x87[..10]);
-                                    b
-                                }
-                                _ => {
-                                    let f64_val = c.to_f64().unwrap_or(0.0);
-                                    crate::ir::reexports::f64_to_x87_bytes(f64_val)
-                                }
-                            };
-                            let lo = u64::from_le_bytes(x87_bytes[0..8].try_into().unwrap());
-                            let hi_2bytes = u16::from_le_bytes(x87_bytes[8..10].try_into().unwrap());
-                            self.state.out.emit_instr_imm("    pushq", hi_2bytes as i64);
-                            self.state.out.emit_instr_imm_reg("    movabsq", lo as i64, "rax");
-                            self.state.emit("    pushq %rax");
-                            self.state.reg_cache.invalidate_all();
-                        }
-                        Operand::Value(ref v) => {
-                            if self.state.f128_direct_slots.contains(&v.0) {
-                                if let Some(slot) = self.state.get_slot(v.0) {
-                                    self.state.emit("    subq $16, %rsp");
-                                    self.state.out.emit_instr_rbp("    fldt", slot.0);
-                                    self.state.emit("    fstpt (%rsp)");
-                                } else {
-                                    self.state.emit("    subq $16, %rsp");
-                                }
-                            } else if let Some(slot) = self.state.get_slot(v.0) {
-                                if self.state.is_alloca(v.0) {
-                                    self.state.emit("    subq $16, %rsp");
-                                    self.state.out.emit_instr_rbp("    fldt", slot.0);
-                                    self.state.emit("    fstpt (%rsp)");
-                                } else {
-                                    self.state.out.emit_instr_rbp_reg("    movq", slot.0, "rax");
-                                    self.state.reg_cache.invalidate_all();
-                                    self.state.emit("    subq $16, %rsp");
-                                    self.state.emit("    pushq %rax");
-                                    self.state.emit("    fldl (%rsp)");
-                                    self.state.emit("    addq $8, %rsp");
-                                    self.state.emit("    fstpt (%rsp)");
-                                }
+                CallArgClass::F128Stack => match &args[si] {
+                    Operand::Const(ref c) => {
+                        let x87_bytes: [u8; 10] = match c {
+                            IrConst::LongDouble(_, f128_bytes) => {
+                                let x87 =
+                                    crate::common::long_double::f128_bytes_to_x87_bytes(f128_bytes);
+                                let mut b = [0u8; 10];
+                                b.copy_from_slice(&x87[..10]);
+                                b
+                            }
+                            _ => {
+                                let f64_val = c.to_f64().unwrap_or(0.0);
+                                crate::ir::reexports::f64_to_x87_bytes(f64_val)
+                            }
+                        };
+                        let lo = u64::from_le_bytes(x87_bytes[0..8].try_into().unwrap());
+                        let hi_2bytes = u16::from_le_bytes(x87_bytes[8..10].try_into().unwrap());
+                        self.state.out.emit_instr_imm("    pushq", hi_2bytes as i64);
+                        self.state
+                            .out
+                            .emit_instr_imm_reg("    movabsq", lo as i64, "rax");
+                        self.state.emit("    pushq %rax");
+                        self.state.reg_cache.invalidate_all();
+                    }
+                    Operand::Value(ref v) => {
+                        if self.state.f128_direct_slots.contains(&v.0) {
+                            if let Some(slot) = self.state.get_slot(v.0) {
+                                self.state.emit("    subq $16, %rsp");
+                                self.state.out.emit_instr_rbp("    fldt", slot.0);
+                                self.state.emit("    fstpt (%rsp)");
                             } else {
                                 self.state.emit("    subq $16, %rsp");
                             }
-                            self.state.reg_cache.invalidate_all();
+                        } else if let Some(slot) = self.state.get_slot(v.0) {
+                            if self.state.is_alloca(v.0) {
+                                self.state.emit("    subq $16, %rsp");
+                                self.state.out.emit_instr_rbp("    fldt", slot.0);
+                                self.state.emit("    fstpt (%rsp)");
+                            } else {
+                                self.state.out.emit_instr_rbp_reg("    movq", slot.0, "rax");
+                                self.state.reg_cache.invalidate_all();
+                                self.state.emit("    subq $16, %rsp");
+                                self.state.emit("    pushq %rax");
+                                self.state.emit("    fldl (%rsp)");
+                                self.state.emit("    addq $8, %rsp");
+                                self.state.emit("    fstpt (%rsp)");
+                            }
+                        } else {
+                            self.state.emit("    subq $16, %rsp");
                         }
+                        self.state.reg_cache.invalidate_all();
                     }
-                }
+                },
                 CallArgClass::I128Stack => {
                     // Push 128-bit value to stack. Load directly from slot
                     // to avoid operand_to_rax_rdx clobbering rdx.
                     match &args[si] {
                         Operand::Value(v) => {
                             if let Some(slot) = self.state.get_slot(v.0) {
-                                self.state.emit_fmt(format_args!("    pushq {}(%rbp)", slot.0 + 8));
-                                self.state.emit_fmt(format_args!("    pushq {}(%rbp)", slot.0));
+                                self.state
+                                    .emit_fmt(format_args!("    pushq {}(%rbp)", slot.0 + 8));
+                                self.state
+                                    .emit_fmt(format_args!("    pushq {}(%rbp)", slot.0));
                             } else {
                                 self.state.emit("    pushq $0");
                                 self.state.emit("    pushq $0");
@@ -107,8 +123,10 @@ impl X86Codegen {
                             if let IrConst::I128(v) = c {
                                 let low = *v as u64;
                                 let high = (*v >> 64) as u64;
-                                self.state.emit_fmt(format_args!("    pushq ${}", high as i64));
-                                self.state.emit_fmt(format_args!("    pushq ${}", low as i64));
+                                self.state
+                                    .emit_fmt(format_args!("    pushq ${}", high as i64));
+                                self.state
+                                    .emit_fmt(format_args!("    pushq ${}", low as i64));
                             } else {
                                 // Smaller constant or zero
                                 if let Operand::Value(_) = &args[si] {} // can't happen
@@ -119,15 +137,22 @@ impl X86Codegen {
                         }
                     }
                 }
-                CallArgClass::StructByValStack { size } | CallArgClass::LargeStructStack { size } => {
+                CallArgClass::StructByValStack { size }
+                | CallArgClass::LargeStructStack { size } => {
                     self.operand_to_rax(&args[si]);
                     let n_qwords = size.div_ceil(8);
                     for qi in (0..n_qwords).rev() {
                         let offset = qi * 8;
                         if offset + 8 <= size {
-                            self.state.emit_fmt(format_args!("    pushq {}(%rax)", offset));
+                            self.state
+                                .emit_fmt(format_args!("    pushq {}(%rax)", offset));
                         } else {
-                            self.state.out.emit_instr_mem_reg("    movq", offset as i64, "rax", "rcx");
+                            self.state.out.emit_instr_mem_reg(
+                                "    movq",
+                                offset as i64,
+                                "rax",
+                                "rcx",
+                            );
                             self.state.emit("    pushq %rcx");
                         }
                     }
@@ -140,16 +165,27 @@ impl X86Codegen {
             }
             let pad = arg_padding[si];
             if pad > 0 {
-                self.state.out.emit_instr_imm_reg("    subq", pad as i64, "rsp");
+                self.state
+                    .out
+                    .emit_instr_imm_reg("    subq", pad as i64, "rsp");
             }
         }
         0
     }
 
-    pub(super) fn emit_call_reg_args_impl(&mut self, args: &[Operand], arg_classes: &[CallArgClass],
-                          _arg_types: &[IrType], _total_sp_adjust: i64, _f128_temp_space: usize, _stack_arg_space: usize,
-                          _struct_arg_riscv_float_classes: &[Option<crate::common::types::RiscvFloatClass>]) {
-        let xmm_regs = ["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"];
+    pub(super) fn emit_call_reg_args_impl(
+        &mut self,
+        args: &[Operand],
+        arg_classes: &[CallArgClass],
+        _arg_types: &[IrType],
+        _total_sp_adjust: i64,
+        _f128_temp_space: usize,
+        _stack_arg_space: usize,
+        _struct_arg_riscv_float_classes: &[Option<crate::common::types::RiscvFloatClass>],
+    ) {
+        let xmm_regs = [
+            "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+        ];
         let mut float_count = 0usize;
         for (i, arg) in args.iter().enumerate() {
             match arg_classes[i] {
@@ -163,12 +199,18 @@ impl X86Codegen {
                         Operand::Value(v) => {
                             if let Some(slot) = self.state.get_slot(v.0) {
                                 // Load both halves directly from the stack slot
-                                self.state.out.emit_instr_rbp_reg("    movq", slot.0, lo_reg);
-                                self.state.out.emit_instr_rbp_reg("    movq", slot.0 + 8, hi_reg);
+                                self.state
+                                    .out
+                                    .emit_instr_rbp_reg("    movq", slot.0, lo_reg);
+                                self.state
+                                    .out
+                                    .emit_instr_rbp_reg("    movq", slot.0 + 8, hi_reg);
                             } else {
                                 // No slot: zero both halves
-                                self.state.emit_fmt(format_args!("    xorq %{}, %{}", lo_reg, lo_reg));
-                                self.state.emit_fmt(format_args!("    xorq %{}, %{}", hi_reg, hi_reg));
+                                self.state
+                                    .emit_fmt(format_args!("    xorq %{}, %{}", lo_reg, lo_reg));
+                                self.state
+                                    .emit_fmt(format_args!("    xorq %{}, %{}", hi_reg, hi_reg));
                             }
                         }
                         Operand::Const(c) => {
@@ -176,18 +218,33 @@ impl X86Codegen {
                                 IrConst::I128(v) => {
                                     let low = *v as u64;
                                     let high = (*v >> 64) as u64;
-                                    self.state.emit_fmt(format_args!("    movabsq ${}, %{}", low as i64, lo_reg));
-                                    self.state.emit_fmt(format_args!("    movabsq ${}, %{}", high as i64, hi_reg));
+                                    self.state.emit_fmt(format_args!(
+                                        "    movabsq ${}, %{}",
+                                        low as i64, lo_reg
+                                    ));
+                                    self.state.emit_fmt(format_args!(
+                                        "    movabsq ${}, %{}",
+                                        high as i64, hi_reg
+                                    ));
                                 }
                                 IrConst::Zero => {
-                                    self.state.emit_fmt(format_args!("    xorq %{}, %{}", lo_reg, lo_reg));
-                                    self.state.emit_fmt(format_args!("    xorq %{}, %{}", hi_reg, hi_reg));
+                                    self.state.emit_fmt(format_args!(
+                                        "    xorq %{}, %{}",
+                                        lo_reg, lo_reg
+                                    ));
+                                    self.state.emit_fmt(format_args!(
+                                        "    xorq %{}, %{}",
+                                        hi_reg, hi_reg
+                                    ));
                                 }
                                 _ => {
                                     // Smaller constant: load into lo_reg via rax, zero hi_reg
                                     self.operand_to_rax(arg);
                                     self.state.out.emit_instr_reg_reg("    movq", "rax", lo_reg);
-                                    self.state.emit_fmt(format_args!("    xorq %{}, %{}", hi_reg, hi_reg));
+                                    self.state.emit_fmt(format_args!(
+                                        "    xorq %{}, %{}",
+                                        hi_reg, hi_reg
+                                    ));
                                 }
                             }
                         }
@@ -196,54 +253,100 @@ impl X86Codegen {
                 CallArgClass::StructByValReg { base_reg_idx, size } => {
                     self.operand_to_rax(arg);
                     let lo_reg = X86_ARG_REGS[base_reg_idx];
-                    self.state.out.emit_instr_mem_reg("    movq", 0, "rax", lo_reg);
+                    self.state
+                        .out
+                        .emit_instr_mem_reg("    movq", 0, "rax", lo_reg);
                     if size > 8 {
                         let hi_reg = X86_ARG_REGS[base_reg_idx + 1];
-                        self.state.out.emit_instr_mem_reg("    movq", 8, "rax", hi_reg);
+                        self.state
+                            .out
+                            .emit_instr_mem_reg("    movq", 8, "rax", hi_reg);
                     }
                 }
-                CallArgClass::StructSseReg { lo_fp_idx, hi_fp_idx, .. } => {
+                CallArgClass::StructSseReg {
+                    lo_fp_idx,
+                    hi_fp_idx,
+                    ..
+                } => {
                     self.operand_to_rax(arg);
-                    self.state.out.emit_instr_mem_reg("    movq", 0, "rax", xmm_regs[lo_fp_idx]);
+                    self.state
+                        .out
+                        .emit_instr_mem_reg("    movq", 0, "rax", xmm_regs[lo_fp_idx]);
                     float_count += 1;
                     if let Some(hi) = hi_fp_idx {
-                        self.state.out.emit_instr_mem_reg("    movq", 8, "rax", xmm_regs[hi]);
+                        self.state
+                            .out
+                            .emit_instr_mem_reg("    movq", 8, "rax", xmm_regs[hi]);
                         float_count += 1;
                     }
                 }
-                CallArgClass::StructMixedIntSseReg { int_reg_idx, fp_reg_idx, .. } => {
+                CallArgClass::StructMixedIntSseReg {
+                    int_reg_idx,
+                    fp_reg_idx,
+                    ..
+                } => {
                     self.operand_to_rax(arg);
-                    self.state.out.emit_instr_mem_reg("    movq", 8, "rax", xmm_regs[fp_reg_idx]);
+                    self.state
+                        .out
+                        .emit_instr_mem_reg("    movq", 8, "rax", xmm_regs[fp_reg_idx]);
                     float_count += 1;
-                    self.state.out.emit_instr_mem_reg("    movq", 0, "rax", X86_ARG_REGS[int_reg_idx]);
+                    self.state.out.emit_instr_mem_reg(
+                        "    movq",
+                        0,
+                        "rax",
+                        X86_ARG_REGS[int_reg_idx],
+                    );
                 }
-                CallArgClass::StructMixedSseIntReg { fp_reg_idx, int_reg_idx, .. } => {
+                CallArgClass::StructMixedSseIntReg {
+                    fp_reg_idx,
+                    int_reg_idx,
+                    ..
+                } => {
                     self.operand_to_rax(arg);
-                    self.state.out.emit_instr_mem_reg("    movq", 8, "rax", X86_ARG_REGS[int_reg_idx]);
-                    self.state.out.emit_instr_mem_reg("    movq", 0, "rax", xmm_regs[fp_reg_idx]);
+                    self.state.out.emit_instr_mem_reg(
+                        "    movq",
+                        8,
+                        "rax",
+                        X86_ARG_REGS[int_reg_idx],
+                    );
+                    self.state
+                        .out
+                        .emit_instr_mem_reg("    movq", 0, "rax", xmm_regs[fp_reg_idx]);
                     float_count += 1;
                 }
                 CallArgClass::FloatReg { reg_idx } => {
                     self.operand_to_rax(arg);
-                    self.state.out.emit_instr_reg_reg("    movq", "rax", xmm_regs[reg_idx]);
+                    self.state
+                        .out
+                        .emit_instr_reg_reg("    movq", "rax", xmm_regs[reg_idx]);
                     float_count += 1;
                 }
                 CallArgClass::IntReg { reg_idx } => {
                     self.operand_to_rax(arg);
-                    self.state.out.emit_instr_reg_reg("    movq", "rax", X86_ARG_REGS[reg_idx]);
+                    self.state
+                        .out
+                        .emit_instr_reg_reg("    movq", "rax", X86_ARG_REGS[reg_idx]);
                 }
                 _ => {}
             }
         }
         if float_count > 0 {
-            self.state.out.emit_instr_imm_reg("    movb", float_count as i64, "al");
+            self.state
+                .out
+                .emit_instr_imm_reg("    movb", float_count as i64, "al");
         } else {
             self.state.emit("    xorl %eax, %eax");
         }
         self.state.reg_cache.invalidate_all();
     }
 
-    pub(super) fn emit_call_instruction_impl(&mut self, direct_name: Option<&str>, func_ptr: Option<&Operand>, _indirect: bool, _stack_arg_space: usize) {
+    pub(super) fn emit_call_instruction_impl(
+        &mut self,
+        direct_name: Option<&str>,
+        func_ptr: Option<&Operand>,
+        _indirect: bool,
+        _stack_arg_space: usize,
+    ) {
         if let Some(name) = direct_name {
             if self.state.needs_plt(name) {
                 self.state.emit_fmt(format_args!("    call {}@PLT", name));
@@ -264,15 +367,25 @@ impl X86Codegen {
         self.state.reg_cache.invalidate_all();
     }
 
-    pub(super) fn emit_call_cleanup_impl(&mut self, stack_arg_space: usize, _f128_temp_space: usize, _indirect: bool) {
+    pub(super) fn emit_call_cleanup_impl(
+        &mut self,
+        stack_arg_space: usize,
+        _f128_temp_space: usize,
+        _indirect: bool,
+    ) {
         let need_align_pad = !stack_arg_space.is_multiple_of(16);
         let total_cleanup = stack_arg_space + if need_align_pad { 8 } else { 0 };
         if total_cleanup > 0 {
-            self.state.out.emit_instr_imm_reg("    addq", total_cleanup as i64, "rsp");
+            self.state
+                .out
+                .emit_instr_imm_reg("    addq", total_cleanup as i64, "rsp");
         }
     }
 
-    pub(super) fn set_call_ret_eightbyte_classes_impl(&mut self, classes: &[crate::common::types::EightbyteClass]) {
+    pub(super) fn set_call_ret_eightbyte_classes_impl(
+        &mut self,
+        classes: &[crate::common::types::EightbyteClass],
+    ) {
         self.call_ret_classes = classes.to_vec();
     }
 
@@ -286,7 +399,9 @@ impl X86Codegen {
                         if let Some(slot) = self.state.get_slot(dest.0) {
                             self.state.out.emit_instr_reg_rbp("    movq", "rax", slot.0);
                             self.state.emit("    movq %xmm0, %rdx");
-                            self.state.out.emit_instr_reg_rbp("    movq", "rdx", slot.0 + 8);
+                            self.state
+                                .out
+                                .emit_instr_reg_rbp("    movq", "rdx", slot.0 + 8);
                         }
                         self.state.reg_cache.invalidate_all();
                     }
@@ -294,7 +409,9 @@ impl X86Codegen {
                         if let Some(slot) = self.state.get_slot(dest.0) {
                             self.state.emit("    movq %xmm0, %rdx");
                             self.state.out.emit_instr_reg_rbp("    movq", "rdx", slot.0);
-                            self.state.out.emit_instr_reg_rbp("    movq", "rax", slot.0 + 8);
+                            self.state
+                                .out
+                                .emit_instr_reg_rbp("    movq", "rax", slot.0 + 8);
                         }
                         self.state.reg_cache.invalidate_all();
                     }
@@ -303,7 +420,9 @@ impl X86Codegen {
                             self.state.emit("    movq %xmm0, %rax");
                             self.state.out.emit_instr_reg_rbp("    movq", "rax", slot.0);
                             self.state.emit("    movq %xmm1, %rax");
-                            self.state.out.emit_instr_reg_rbp("    movq", "rax", slot.0 + 8);
+                            self.state
+                                .out
+                                .emit_instr_reg_rbp("    movq", "rax", slot.0 + 8);
                         }
                         self.state.reg_cache.invalidate_all();
                     }

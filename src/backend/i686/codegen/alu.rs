@@ -1,9 +1,9 @@
 //! I686Codegen: ALU operations (integer arithmetic, bitwise, shifts).
 
-use crate::ir::reexports::{IrBinOp, Operand, Value};
+use super::emit::{alu_mnemonic, shift_mnemonic, I686Codegen};
 use crate::common::types::IrType;
 use crate::emit;
-use super::emit::{I686Codegen, alu_mnemonic, shift_mnemonic};
+use crate::ir::reexports::{IrBinOp, Operand, Value};
 
 impl I686Codegen {
     pub(super) fn emit_float_neg_impl(&mut self, ty: IrType) {
@@ -54,9 +54,19 @@ impl I686Codegen {
         self.state.emit("    popcntl %eax, %eax");
     }
 
-    pub(super) fn emit_int_binop_impl(&mut self, dest: &Value, op: IrBinOp, lhs: &Operand, rhs: &Operand, _ty: IrType) {
+    pub(super) fn emit_int_binop_impl(
+        &mut self,
+        dest: &Value,
+        op: IrBinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        _ty: IrType,
+    ) {
         // Immediate optimization for ALU ops
-        if matches!(op, IrBinOp::Add | IrBinOp::Sub | IrBinOp::And | IrBinOp::Or | IrBinOp::Xor) {
+        if matches!(
+            op,
+            IrBinOp::Add | IrBinOp::Sub | IrBinOp::And | IrBinOp::Or | IrBinOp::Xor
+        ) {
             if let Some(imm) = Self::const_as_imm32(rhs) {
                 self.operand_to_eax(lhs);
                 let mnem = alu_mnemonic(op);

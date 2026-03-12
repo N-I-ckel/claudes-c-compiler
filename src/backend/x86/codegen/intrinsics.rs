@@ -11,13 +11,8 @@
 //! - Frame/return address intrinsics
 //! - SSE scalar float math (sqrt, fabs) for F32/F64
 
-use crate::ir::reexports::{
-    IntrinsicOp,
-    IrConst,
-    Operand,
-    Value,
-};
 use super::emit::X86Codegen;
+use crate::ir::reexports::{IntrinsicOp, IrConst, Operand, Value};
 
 impl X86Codegen {
     /// Load a float operand into %xmm0. Handles both Value operands (from stack)
@@ -34,7 +29,9 @@ impl X86Codegen {
                             self.state.out.emit_instr_imm_reg("    movq", bits, "rax");
                             self.state.emit("    movq %rax, %xmm0");
                         } else {
-                            self.state.out.emit_instr_imm_reg("    movabsq", bits, "rax");
+                            self.state
+                                .out
+                                .emit_instr_imm_reg("    movabsq", bits, "rax");
                             self.state.emit("    movq %rax, %xmm0");
                         }
                     }
@@ -43,7 +40,9 @@ impl X86Codegen {
                         if bits == 0 {
                             self.state.emit("    xorps %xmm0, %xmm0");
                         } else {
-                            self.state.out.emit_instr_imm_reg("    movl", bits as i64, "eax");
+                            self.state
+                                .out
+                                .emit_instr_imm_reg("    movl", bits as i64, "eax");
                             self.state.emit("    movd %eax, %xmm0");
                         }
                     }
@@ -70,7 +69,12 @@ impl X86Codegen {
         }
     }
 
-    fn emit_nontemporal_store(&mut self, op: &IntrinsicOp, dest_ptr: &Option<Value>, args: &[Operand]) {
+    fn emit_nontemporal_store(
+        &mut self,
+        op: &IntrinsicOp,
+        dest_ptr: &Option<Value>,
+        args: &[Operand],
+    ) {
         let Some(ptr) = dest_ptr else { return };
         match op {
             IntrinsicOp::Movnti => {
@@ -106,7 +110,8 @@ impl X86Codegen {
         self.state.emit("    movdqu (%rax), %xmm0");
         self.operand_to_reg(&args[1], "rcx");
         self.state.emit("    movdqu (%rcx), %xmm1");
-        self.state.emit_fmt(format_args!("    {} %xmm1, %xmm0", sse_inst));
+        self.state
+            .emit_fmt(format_args!("    {} %xmm1, %xmm0", sse_inst));
         self.value_to_reg(dest_ptr, "rax");
         self.state.emit("    movdqu %xmm0, (%rax)");
     }
@@ -117,7 +122,8 @@ impl X86Codegen {
         self.operand_to_reg(&args[0], "rax");
         self.state.emit("    movdqu (%rax), %xmm0");
         let imm = self.operand_to_imm_i64(&args[1]);
-        self.state.emit_fmt(format_args!("    {} ${}, %xmm0", sse_inst, imm));
+        self.state
+            .emit_fmt(format_args!("    {} ${}, %xmm0", sse_inst, imm));
         self.value_to_reg(dest_ptr, "rax");
         self.state.emit("    movdqu %xmm0, (%rax)");
     }
@@ -128,24 +134,41 @@ impl X86Codegen {
         self.operand_to_reg(&args[0], "rax");
         self.state.emit("    movdqu (%rax), %xmm0");
         let imm = self.operand_to_imm_i64(&args[1]);
-        self.state.emit_fmt(format_args!("    {} ${}, %xmm0, %xmm0", sse_inst, imm));
+        self.state
+            .emit_fmt(format_args!("    {} ${}, %xmm0, %xmm0", sse_inst, imm));
         self.value_to_reg(dest_ptr, "rax");
         self.state.emit("    movdqu %xmm0, (%rax)");
     }
 
-    pub(super) fn emit_intrinsic_impl(&mut self, dest: &Option<Value>, op: &IntrinsicOp, dest_ptr: &Option<Value>, args: &[Operand]) {
+    pub(super) fn emit_intrinsic_impl(
+        &mut self,
+        dest: &Option<Value>,
+        op: &IntrinsicOp,
+        dest_ptr: &Option<Value>,
+        args: &[Operand],
+    ) {
         match op {
-            IntrinsicOp::Lfence => { self.state.emit("    lfence"); }
-            IntrinsicOp::Mfence => { self.state.emit("    mfence"); }
-            IntrinsicOp::Sfence => { self.state.emit("    sfence"); }
-            IntrinsicOp::Pause => { self.state.emit("    pause"); }
+            IntrinsicOp::Lfence => {
+                self.state.emit("    lfence");
+            }
+            IntrinsicOp::Mfence => {
+                self.state.emit("    mfence");
+            }
+            IntrinsicOp::Sfence => {
+                self.state.emit("    sfence");
+            }
+            IntrinsicOp::Pause => {
+                self.state.emit("    pause");
+            }
             IntrinsicOp::Clflush => {
                 // args[0] = pointer to flush
                 self.operand_to_reg(&args[0], "rax");
                 self.state.emit("    clflush (%rax)");
             }
-            IntrinsicOp::Movnti | IntrinsicOp::Movnti64
-            | IntrinsicOp::Movntdq | IntrinsicOp::Movntpd => {
+            IntrinsicOp::Movnti
+            | IntrinsicOp::Movnti64
+            | IntrinsicOp::Movntdq
+            | IntrinsicOp::Movntpd => {
                 self.emit_nontemporal_store(op, dest_ptr, args);
             }
             IntrinsicOp::Loaddqu => {
@@ -164,10 +187,13 @@ impl X86Codegen {
                     self.state.emit("    movdqu %xmm0, (%rax)");
                 }
             }
-            IntrinsicOp::Pcmpeqb128 | IntrinsicOp::Pcmpeqd128
-            | IntrinsicOp::Psubusb128 | IntrinsicOp::Psubsb128
+            IntrinsicOp::Pcmpeqb128
+            | IntrinsicOp::Pcmpeqd128
+            | IntrinsicOp::Psubusb128
+            | IntrinsicOp::Psubsb128
             | IntrinsicOp::Por128
-            | IntrinsicOp::Pand128 | IntrinsicOp::Pxor128 => {
+            | IntrinsicOp::Pand128
+            | IntrinsicOp::Pxor128 => {
                 if let Some(dptr) = dest_ptr {
                     let inst = match op {
                         IntrinsicOp::Pcmpeqb128 => "pcmpeqb",
@@ -210,12 +236,14 @@ impl X86Codegen {
                     self.state.emit("    movdqu %xmm0, (%rax)");
                 }
             }
-            IntrinsicOp::Crc32_8 | IntrinsicOp::Crc32_16
-            | IntrinsicOp::Crc32_32 | IntrinsicOp::Crc32_64 => {
+            IntrinsicOp::Crc32_8
+            | IntrinsicOp::Crc32_16
+            | IntrinsicOp::Crc32_32
+            | IntrinsicOp::Crc32_64 => {
                 self.operand_to_reg(&args[0], "rax");
                 self.operand_to_reg(&args[1], "rcx");
                 let inst = match op {
-                    IntrinsicOp::Crc32_8  => "crc32b %cl, %eax",
+                    IntrinsicOp::Crc32_8 => "crc32b %cl, %eax",
                     IntrinsicOp::Crc32_16 => "crc32w %cx, %eax",
                     IntrinsicOp::Crc32_32 => "crc32l %ecx, %eax",
                     IntrinsicOp::Crc32_64 => "crc32q %rcx, %rax",
@@ -288,8 +316,10 @@ impl X86Codegen {
                 }
             }
             // AES-NI binary ops: aesenc, aesenclast, aesdec, aesdeclast
-            IntrinsicOp::Aesenc128 | IntrinsicOp::Aesenclast128
-            | IntrinsicOp::Aesdec128 | IntrinsicOp::Aesdeclast128 => {
+            IntrinsicOp::Aesenc128
+            | IntrinsicOp::Aesenclast128
+            | IntrinsicOp::Aesdec128
+            | IntrinsicOp::Aesdeclast128 => {
                 if let Some(dptr) = dest_ptr {
                     let inst = match op {
                         IntrinsicOp::Aesenc128 => "aesenc",
@@ -318,7 +348,8 @@ impl X86Codegen {
                     self.state.emit("    movdqu (%rax), %xmm0");
                     // args[1] is the immediate value
                     let imm = self.operand_to_imm_i64(&args[1]);
-                    self.state.emit_fmt(format_args!("    aeskeygenassist ${}, %xmm0, %xmm0", imm));
+                    self.state
+                        .emit_fmt(format_args!("    aeskeygenassist ${}, %xmm0, %xmm0", imm));
                     self.value_to_reg(dptr, "rax");
                     self.state.emit("    movdqu %xmm0, (%rax)");
                 }
@@ -331,14 +362,17 @@ impl X86Codegen {
                     self.operand_to_reg(&args[1], "rcx");
                     self.state.emit("    movdqu (%rcx), %xmm1");
                     let imm = self.operand_to_imm_i64(&args[2]);
-                    self.state.emit_fmt(format_args!("    pclmulqdq ${}, %xmm1, %xmm0", imm));
+                    self.state
+                        .emit_fmt(format_args!("    pclmulqdq ${}, %xmm1, %xmm0", imm));
                     self.value_to_reg(dptr, "rax");
                     self.state.emit("    movdqu %xmm0, (%rax)");
                 }
             }
             // SSE2 shift-by-immediate operations
-            IntrinsicOp::Pslldqi128 | IntrinsicOp::Psrldqi128
-            | IntrinsicOp::Psllqi128 | IntrinsicOp::Psrlqi128 => {
+            IntrinsicOp::Pslldqi128
+            | IntrinsicOp::Psrldqi128
+            | IntrinsicOp::Psllqi128
+            | IntrinsicOp::Psrlqi128 => {
                 if let Some(dptr) = dest_ptr {
                     let inst = match op {
                         IntrinsicOp::Pslldqi128 => "pslldq",
@@ -367,12 +401,21 @@ impl X86Codegen {
             }
 
             // SSE2 binary 128-bit operations
-            IntrinsicOp::Paddw128 | IntrinsicOp::Psubw128 | IntrinsicOp::Pmulhw128
-            | IntrinsicOp::Pmaddwd128 | IntrinsicOp::Pcmpgtw128 | IntrinsicOp::Pcmpgtb128
-            | IntrinsicOp::Paddd128 | IntrinsicOp::Psubd128
-            | IntrinsicOp::Packssdw128 | IntrinsicOp::Packsswb128 | IntrinsicOp::Packuswb128
-            | IntrinsicOp::Punpcklbw128 | IntrinsicOp::Punpckhbw128
-            | IntrinsicOp::Punpcklwd128 | IntrinsicOp::Punpckhwd128 => {
+            IntrinsicOp::Paddw128
+            | IntrinsicOp::Psubw128
+            | IntrinsicOp::Pmulhw128
+            | IntrinsicOp::Pmaddwd128
+            | IntrinsicOp::Pcmpgtw128
+            | IntrinsicOp::Pcmpgtb128
+            | IntrinsicOp::Paddd128
+            | IntrinsicOp::Psubd128
+            | IntrinsicOp::Packssdw128
+            | IntrinsicOp::Packsswb128
+            | IntrinsicOp::Packuswb128
+            | IntrinsicOp::Punpcklbw128
+            | IntrinsicOp::Punpckhbw128
+            | IntrinsicOp::Punpcklwd128
+            | IntrinsicOp::Punpckhwd128 => {
                 if let Some(dptr) = dest_ptr {
                     let inst = match op {
                         IntrinsicOp::Paddw128 => "paddw",
@@ -397,8 +440,12 @@ impl X86Codegen {
             }
 
             // SSE2 element shift-by-immediate operations
-            IntrinsicOp::Psllwi128 | IntrinsicOp::Psrlwi128 | IntrinsicOp::Psrawi128
-            | IntrinsicOp::Psradi128 | IntrinsicOp::Pslldi128 | IntrinsicOp::Psrldi128 => {
+            IntrinsicOp::Psllwi128
+            | IntrinsicOp::Psrlwi128
+            | IntrinsicOp::Psrawi128
+            | IntrinsicOp::Psradi128
+            | IntrinsicOp::Pslldi128
+            | IntrinsicOp::Psrldi128 => {
                 if let Some(dptr) = dest_ptr {
                     let inst = match op {
                         IntrinsicOp::Psllwi128 => "psllw",
@@ -432,7 +479,8 @@ impl X86Codegen {
                     self.state.emit("    movdqu (%rax), %xmm0");
                     self.operand_to_reg(&args[1], "rcx");
                     let imm = self.operand_to_imm_i64(&args[2]);
-                    self.state.emit_fmt(format_args!("    pinsrw ${}, %ecx, %xmm0", imm));
+                    self.state
+                        .emit_fmt(format_args!("    pinsrw ${}, %ecx, %xmm0", imm));
                     self.value_to_reg(dptr, "rax");
                     self.state.emit("    movdqu %xmm0, (%rax)");
                 }
@@ -442,7 +490,8 @@ impl X86Codegen {
                 self.operand_to_reg(&args[0], "rax");
                 self.state.emit("    movdqu (%rax), %xmm0");
                 let imm = self.operand_to_imm_i64(&args[1]);
-                self.state.emit_fmt(format_args!("    pextrw ${}, %xmm0, %eax", imm));
+                self.state
+                    .emit_fmt(format_args!("    pextrw ${}, %xmm0, %eax", imm));
                 if let Some(d) = dest {
                     self.store_rax_to(d);
                 }
@@ -454,7 +503,8 @@ impl X86Codegen {
                     self.state.emit("    movdqu (%rax), %xmm0");
                     self.operand_to_reg(&args[1], "rcx");
                     let imm = self.operand_to_imm_i64(&args[2]);
-                    self.state.emit_fmt(format_args!("    pinsrd ${}, %ecx, %xmm0", imm));
+                    self.state
+                        .emit_fmt(format_args!("    pinsrd ${}, %ecx, %xmm0", imm));
                     self.value_to_reg(dptr, "rax");
                     self.state.emit("    movdqu %xmm0, (%rax)");
                 }
@@ -464,7 +514,8 @@ impl X86Codegen {
                 self.operand_to_reg(&args[0], "rax");
                 self.state.emit("    movdqu (%rax), %xmm0");
                 let imm = self.operand_to_imm_i64(&args[1]);
-                self.state.emit_fmt(format_args!("    pextrd ${}, %xmm0, %eax", imm));
+                self.state
+                    .emit_fmt(format_args!("    pextrd ${}, %xmm0, %eax", imm));
                 if let Some(d) = dest {
                     self.store_rax_to(d);
                 }
@@ -476,7 +527,8 @@ impl X86Codegen {
                     self.state.emit("    movdqu (%rax), %xmm0");
                     self.operand_to_reg(&args[1], "rcx");
                     let imm = self.operand_to_imm_i64(&args[2]);
-                    self.state.emit_fmt(format_args!("    pinsrb ${}, %ecx, %xmm0", imm));
+                    self.state
+                        .emit_fmt(format_args!("    pinsrb ${}, %ecx, %xmm0", imm));
                     self.value_to_reg(dptr, "rax");
                     self.state.emit("    movdqu %xmm0, (%rax)");
                 }
@@ -486,7 +538,8 @@ impl X86Codegen {
                 self.operand_to_reg(&args[0], "rax");
                 self.state.emit("    movdqu (%rax), %xmm0");
                 let imm = self.operand_to_imm_i64(&args[1]);
-                self.state.emit_fmt(format_args!("    pextrb ${}, %xmm0, %eax", imm));
+                self.state
+                    .emit_fmt(format_args!("    pextrb ${}, %xmm0, %eax", imm));
                 if let Some(d) = dest {
                     self.store_rax_to(d);
                 }
@@ -498,7 +551,8 @@ impl X86Codegen {
                     self.state.emit("    movdqu (%rax), %xmm0");
                     self.operand_to_reg(&args[1], "rcx");
                     let imm = self.operand_to_imm_i64(&args[2]);
-                    self.state.emit_fmt(format_args!("    pinsrq ${}, %rcx, %xmm0", imm));
+                    self.state
+                        .emit_fmt(format_args!("    pinsrq ${}, %rcx, %xmm0", imm));
                     self.value_to_reg(dptr, "rax");
                     self.state.emit("    movdqu %xmm0, (%rax)");
                 }
@@ -508,7 +562,8 @@ impl X86Codegen {
                 self.operand_to_reg(&args[0], "rax");
                 self.state.emit("    movdqu (%rax), %xmm0");
                 let imm = self.operand_to_imm_i64(&args[1]);
-                self.state.emit_fmt(format_args!("    pextrq ${}, %xmm0, %rax", imm));
+                self.state
+                    .emit_fmt(format_args!("    pextrq ${}, %xmm0, %rax", imm));
                 if let Some(d) = dest {
                     self.store_rax_to(d);
                 }

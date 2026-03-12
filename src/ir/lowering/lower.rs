@@ -12,39 +12,24 @@
 //! Data structure definitions are in `definitions.rs`, per-function state in
 //! `func_state.rs`, and type-system state in `frontend::sema::type_context`.
 
-use std::cell::RefCell;
-use std::mem::Discriminant;
-use crate::common::fx_hash::{FxHashMap, FxHashSet};
-use crate::common::error::DiagnosticEngine;
-use crate::common::source::Span;
-use crate::frontend::parser::ast::{
-    DerivedDeclarator,
-    Expr,
-    ExprId,
-    ExternalDecl,
-    ParamDecl,
-    TranslationUnit,
-    TypeSpecifier,
-};
-use crate::frontend::sema::{FunctionInfo, ExprTypeMap, ConstMap};
-use crate::ir::reexports::{
-    BasicBlock,
-    BlockId,
-    CallInfo,
-    Instruction,
-    IrBinOp,
-    IrCmpOp,
-    IrConst,
-    IrModule,
-    Operand,
-    Terminator,
-    Value,
-};
-use crate::common::types::{AddressSpace, IrType, CType};
-use crate::backend::Target;
 use super::definitions::*;
 use super::func_state::FunctionBuildState;
+use crate::backend::Target;
+use crate::common::error::DiagnosticEngine;
+use crate::common::fx_hash::{FxHashMap, FxHashSet};
+use crate::common::source::Span;
+use crate::common::types::{AddressSpace, CType, IrType};
+use crate::frontend::parser::ast::{
+    DerivedDeclarator, Expr, ExprId, ExternalDecl, ParamDecl, TranslationUnit, TypeSpecifier,
+};
 use crate::frontend::sema::type_context::TypeContext;
+use crate::frontend::sema::{ConstMap, ExprTypeMap, FunctionInfo};
+use crate::ir::reexports::{
+    BasicBlock, BlockId, CallInfo, Instruction, IrBinOp, IrCmpOp, IrConst, IrModule, Operand,
+    Terminator, Value,
+};
+use std::cell::RefCell;
+use std::mem::Discriminant;
 
 /// Lowers AST to IR (alloca-based, not yet SSA).
 pub struct Lowerer {
@@ -258,9 +243,11 @@ impl Lowerer {
     ///
     /// In both cases, the function body is available for inlining but the compiler
     /// must not emit a standalone global symbol.
-    pub(super) fn is_gnu_inline_no_extern_def(&self, attrs: &crate::frontend::parser::ast::FunctionAttributes) -> bool {
-        attrs.is_inline() && attrs.is_extern() &&
-            (attrs.is_gnu_inline() || self.gnu89_inline)
+    pub(super) fn is_gnu_inline_no_extern_def(
+        &self,
+        attrs: &crate::frontend::parser::ast::FunctionAttributes,
+    ) -> bool {
+        attrs.is_inline() && attrs.is_extern() && (attrs.is_gnu_inline() || self.gnu89_inline)
     }
 
     /// Returns true if the target uses x86-64 style packed _Complex float ABI
@@ -344,7 +331,12 @@ impl Lowerer {
 
     /// Resolve the CType of a struct/union field, handling both direct member access
     /// (s.field) and pointer member access (p->field) through a single entry point.
-    pub(super) fn resolve_field_ctype(&self, base_expr: &Expr, field_name: &str, is_pointer_access: bool) -> Option<CType> {
+    pub(super) fn resolve_field_ctype(
+        &self,
+        base_expr: &Expr,
+        field_name: &str,
+        is_pointer_access: bool,
+    ) -> Option<CType> {
         self.resolve_member_field_ctype_impl(base_expr, field_name, is_pointer_access)
     }
 
@@ -409,7 +401,10 @@ impl Lowerer {
     /// Collect cleanup variables from scopes above `target_depth` (for break/continue).
     /// This collects from the innermost scope down to (but not including) the scope at
     /// target_depth, with each scope's vars in reverse declaration order.
-    pub(super) fn collect_scope_cleanup_vars_above_depth(&self, target_depth: usize) -> Vec<(String, Value)> {
+    pub(super) fn collect_scope_cleanup_vars_above_depth(
+        &self,
+        target_depth: usize,
+    ) -> Vec<(String, Value)> {
         let func = self.func();
         let mut all_cleanups = Vec::new();
         // Walk scopes from innermost to outermost, stopping at target_depth
@@ -482,12 +477,15 @@ impl Lowerer {
                 if decl.is_typedef() {
                     for declarator in &decl.declarators {
                         if !declarator.name.is_empty() {
-                            let base_ctype = self.build_full_ctype(&decl.type_spec, &declarator.derived);
+                            let base_ctype =
+                                self.build_full_ctype(&decl.type_spec, &declarator.derived);
                             let elem_size = base_ctype.size();
                             if let Some(vs) = decl.resolve_vector_size(elem_size) {
                                 has_vector_typedefs = true;
                                 let vec_ctype = CType::Vector(Box::new(base_ctype), vs);
-                                self.types.typedefs.insert(declarator.name.clone(), vec_ctype);
+                                self.types
+                                    .typedefs
+                                    .insert(declarator.name.clone(), vec_ctype);
                             }
                         }
                     }
@@ -531,8 +529,13 @@ impl Lowerer {
         for decl in &tu.decls {
             if let ExternalDecl::FunctionDef(func) = decl {
                 self.register_function_meta(
-                    &func.name, &func.return_type, 0,
-                    &func.params, func.variadic, func.attrs.is_static(), func.is_kr,
+                    &func.name,
+                    &func.return_type,
+                    0,
+                    &func.params,
+                    func.variadic,
+                    func.attrs.is_static(),
+                    func.is_kr,
                 );
             }
             if let ExternalDecl::Declaration(decl) = decl {
@@ -545,14 +548,13 @@ impl Lowerer {
                     // (e.g., `register int x __asm__("rbx")`), which is handled separately
                     // in lower_global_decl. We only redirect function declarations here.
                     if let Some(ref asm_label) = declarator.attrs.asm_register {
-                        let is_function_decl = declarator.derived.iter().any(|d|
-                            matches!(d, DerivedDeclarator::Function(_, _))
-                        );
+                        let is_function_decl = declarator
+                            .derived
+                            .iter()
+                            .any(|d| matches!(d, DerivedDeclarator::Function(_, _)));
                         if is_function_decl {
-                            self.asm_label_map.insert(
-                                declarator.name.clone(),
-                                asm_label.clone(),
-                            );
+                            self.asm_label_map
+                                .insert(declarator.name.clone(), asm_label.clone());
                         }
                     }
 
@@ -571,17 +573,20 @@ impl Lowerer {
                     }
                     if let Some((params, variadic)) = func_info {
                         self.register_function_meta(
-                            &declarator.name, &decl.type_spec, ptr_count,
-                            &params, variadic, decl.is_static(), false,
+                            &declarator.name,
+                            &decl.type_spec,
+                            ptr_count,
+                            &params,
+                            variadic,
+                            decl.is_static(),
+                            false,
                         );
                         // C99 6.7.4p7: Track function declarations that would make
                         // an inline definition provide an external definition.
                         // An inline definition is "inline only" (no external def) ONLY
                         // if ALL file-scope declarations include `inline` WITHOUT `extern`.
                         // So: if any declaration lacks `inline` OR has `extern`, mark it.
-                        if !declarator.name.is_empty()
-                            && (!decl.is_inline() || decl.is_extern())
-                        {
+                        if !declarator.name.is_empty() && (!decl.is_inline() || decl.is_extern()) {
                             self.has_non_inline_decl.insert(declarator.name.clone());
                         }
                     } else if declarator.derived.is_empty() {
@@ -592,8 +597,13 @@ impl Lowerer {
                         if let TypeSpecifier::TypedefName(tname) = &decl.type_spec {
                             if let Some(fti) = self.types.function_typedefs.get(tname).cloned() {
                                 self.register_function_meta(
-                                    &declarator.name, &fti.return_type, 0,
-                                    &fti.params, fti.variadic, false, false,
+                                    &declarator.name,
+                                    &fti.return_type,
+                                    0,
+                                    &fti.params,
+                                    fti.variadic,
+                                    false,
+                                    false,
                                 );
                             }
                         }
@@ -606,7 +616,8 @@ impl Lowerer {
         for decl in &tu.decls {
             match decl {
                 ExternalDecl::FunctionDef(func) => {
-                    if func.attrs.is_constructor() && !self.module.constructors.contains(&func.name) {
+                    if func.attrs.is_constructor() && !self.module.constructors.contains(&func.name)
+                    {
                         self.module.constructors.push(func.name.clone());
                     }
                     if func.attrs.is_destructor() && !self.module.destructors.contains(&func.name) {
@@ -618,12 +629,14 @@ impl Lowerer {
                 }
                 ExternalDecl::Declaration(decl) => {
                     for declarator in &decl.declarators {
-                        if declarator.attrs.is_constructor() && !declarator.name.is_empty()
+                        if declarator.attrs.is_constructor()
+                            && !declarator.name.is_empty()
                             && !self.module.constructors.contains(&declarator.name)
                         {
                             self.module.constructors.push(declarator.name.clone());
                         }
-                        if declarator.attrs.is_destructor() && !declarator.name.is_empty()
+                        if declarator.attrs.is_destructor()
+                            && !declarator.name.is_empty()
                             && !self.module.destructors.contains(&declarator.name)
                         {
                             self.module.destructors.push(declarator.name.clone());
@@ -641,10 +654,9 @@ impl Lowerer {
                         // Collect __attribute__((symver("..."))) declarations
                         if let Some(ref sv) = declarator.attrs.symver {
                             if !declarator.name.is_empty() {
-                                self.module.symver_directives.push((
-                                    declarator.name.clone(),
-                                    sv.clone(),
-                                ));
+                                self.module
+                                    .symver_directives
+                                    .push((declarator.name.clone(), sv.clone()));
                             }
                         }
                         // Collect __attribute__((error("..."))) / __attribute__((warning("...")))
@@ -712,8 +724,10 @@ impl Lowerer {
                     // Note: this only applies in C99 mode; in GNU89 mode, `inline`
                     // without `extern` provides the external definition.
                     let is_c99_inline_only = !self.gnu89_inline
-                        && func.attrs.is_inline() && !func.attrs.is_extern()
-                        && !func.attrs.is_static() && !func.attrs.is_gnu_inline()
+                        && func.attrs.is_inline()
+                        && !func.attrs.is_extern()
+                        && !func.attrs.is_static()
+                        && !func.attrs.is_gnu_inline()
                         && !self.has_non_inline_decl.contains(&func.name);
                     let can_skip = if is_c99_inline_only {
                         // C99 inline-only functions don't provide an external definition.
@@ -730,10 +744,14 @@ impl Lowerer {
                     } else {
                         false
                     };
-                    if can_skip && !func.attrs.is_used()
-                        && !func.attrs.is_constructor() && !self.module.constructors.contains(&func.name)
-                        && !func.attrs.is_destructor() && !self.module.destructors.contains(&func.name)
-                        && !referenced_statics.contains(&func.name) {
+                    if can_skip
+                        && !func.attrs.is_used()
+                        && !func.attrs.is_constructor()
+                        && !self.module.constructors.contains(&func.name)
+                        && !func.attrs.is_destructor()
+                        && !self.module.destructors.contains(&func.name)
+                        && !referenced_statics.contains(&func.name)
+                    {
                         continue;
                     }
                     self.lower_function(func);
@@ -820,10 +838,14 @@ impl Lowerer {
         //   _Complex double (16 bytes): sret hidden pointer (ret_ty stays Ptr)
         //   _Complex long double (24 bytes): sret hidden pointer (ret_ty stays Ptr)
         if ptr_count == 0 {
-            if matches!(full_ret_ctype, CType::ComplexLongDouble) && self.returns_complex_long_double_in_regs() {
+            if matches!(full_ret_ctype, CType::ComplexLongDouble)
+                && self.returns_complex_long_double_in_regs()
+            {
                 // x86-64: real part in x87 st(0); ARM64: real part in q0
                 ret_ty = IrType::F128;
-            } else if matches!(full_ret_ctype, CType::ComplexDouble) && self.decomposes_complex_double() {
+            } else if matches!(full_ret_ctype, CType::ComplexDouble)
+                && self.decomposes_complex_double()
+            {
                 // x86-64/ARM64/RISC-V: _Complex double returns real in FP reg
                 ret_ty = IrType::F64;
             } else if matches!(full_ret_ctype, CType::ComplexFloat) {
@@ -852,7 +874,9 @@ impl Lowerer {
 
         // Record complex return types for expr_ctype resolution
         if ptr_count == 0 && full_ret_ctype.is_complex() {
-            self.types.func_return_ctypes.insert(name.to_string(), full_ret_ctype.clone());
+            self.types
+                .func_return_ctypes
+                .insert(name.to_string(), full_ret_ctype.clone());
         }
 
         // Detect struct/complex/vector returns that need special ABI handling.
@@ -912,44 +936,60 @@ impl Lowerer {
 
         // Collect parameter types, with K&R default argument promotions.
         // Use sema's param CTypes when available to avoid re-computing from AST.
-        let sema_param_ctypes = self.sema_functions.get(name)
-            .map(|fi| fi.params.iter().map(|(ct, _)| ct.clone()).collect::<Vec<_>>());
+        let sema_param_ctypes = self.sema_functions.get(name).map(|fi| {
+            fi.params
+                .iter()
+                .map(|(ct, _)| ct.clone())
+                .collect::<Vec<_>>()
+        });
 
-        let param_tys: Vec<IrType> = params.iter().enumerate().map(|(i, p)| {
-            let ty = if let Some(ref sema_cts) = sema_param_ctypes {
-                if let Some(ct) = sema_cts.get(i) {
-                    IrType::from_ctype(ct)
+        let param_tys: Vec<IrType> = params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let ty = if let Some(ref sema_cts) = sema_param_ctypes {
+                    if let Some(ct) = sema_cts.get(i) {
+                        IrType::from_ctype(ct)
+                    } else {
+                        self.type_spec_to_ir(&p.type_spec)
+                    }
                 } else {
                     self.type_spec_to_ir(&p.type_spec)
+                };
+                if is_kr {
+                    match ty {
+                        IrType::F32 => IrType::F64,
+                        IrType::I8 | IrType::U8 | IrType::I16 | IrType::U16 => IrType::I32,
+                        other => other,
+                    }
+                } else {
+                    ty
                 }
-            } else {
-                self.type_spec_to_ir(&p.type_spec)
-            };
-            if is_kr {
-                match ty {
-                    IrType::F32 => IrType::F64,
-                    IrType::I8 | IrType::U8 | IrType::I16 | IrType::U16 => IrType::I32,
-                    other => other,
-                }
-            } else { ty }
-        }).collect();
-        let param_bool_flags: Vec<bool> = params.iter().map(|p| {
-            self.is_type_bool(&p.type_spec)
-        }).collect();
+            })
+            .collect();
+        let param_bool_flags: Vec<bool> = params
+            .iter()
+            .map(|p| self.is_type_bool(&p.type_spec))
+            .collect();
         // Collect parameter CTypes for complex argument conversion.
         // Prefer sema's authoritative CTypes when available.
         let param_ctypes: Vec<CType> = if let Some(sema_cts) = sema_param_ctypes {
-            params.iter().enumerate().map(|(i, p)| {
-                if let Some(ct) = sema_cts.get(i) {
-                    ct.clone()
-                } else {
-                    self.type_spec_to_ctype(&p.type_spec)
-                }
-            }).collect()
+            params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    if let Some(ct) = sema_cts.get(i) {
+                        ct.clone()
+                    } else {
+                        self.type_spec_to_ctype(&p.type_spec)
+                    }
+                })
+                .collect()
         } else {
-            params.iter().map(|p| {
-                self.type_spec_to_ctype(&p.type_spec)
-            }).collect()
+            params
+                .iter()
+                .map(|p| self.type_spec_to_ctype(&p.type_spec))
+                .collect()
         };
 
         // Collect per-parameter struct sizes for by-value struct passing ABI.
@@ -961,49 +1001,62 @@ impl Lowerer {
         let decomposes_cld = self.decomposes_complex_long_double();
         let decomposes_cd = self.decomposes_complex_double();
         let decomposes_cf = self.decomposes_complex_float();
-        let param_struct_sizes: Vec<Option<usize>> = params.iter().map(|p| {
-            let ctype = self.type_spec_to_ctype(&p.type_spec);
-            if self.is_type_struct_or_union(&p.type_spec) && !self.is_transparent_union(&p.type_spec) {
-                Some(self.sizeof_type(&p.type_spec))
-            } else if ctype.is_vector() {
-                // Vector types are passed by value like structs
-                Some(self.sizeof_type(&p.type_spec))
-            } else if !decomposes_cld && matches!(ctype, CType::ComplexLongDouble) {
-                Some(self.sizeof_type(&p.type_spec))
-            } else if !decomposes_cd && matches!(ctype, CType::ComplexDouble) {
-                Some(CType::ComplexDouble.size())
-            } else if !decomposes_cf && matches!(ctype, CType::ComplexFloat) {
-                Some(CType::ComplexFloat.size())
-            } else {
-                None
-            }
-        }).collect();
-
-        // Compute per-eightbyte SysV ABI classification for struct params
-        let param_struct_classes: Vec<Vec<crate::common::types::EightbyteClass>> = params.iter().enumerate().map(|(i, p)| {
-            if param_struct_sizes.get(i).copied().flatten().is_some() {
-                if let Some(layout) = self.get_struct_layout_for_type(&p.type_spec) {
-                    layout.classify_sysv_eightbytes(&*self.types.borrow_struct_layouts())
-                } else {
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
-            }
-        }).collect();
-
-        // Compute RISC-V LP64D float field classification for struct params
-        let param_riscv_float_classes: Vec<Option<crate::common::types::RiscvFloatClass>> = params.iter().enumerate().map(|(i, p)| {
-            if param_struct_sizes.get(i).copied().flatten().is_some() {
-                if let Some(layout) = self.get_struct_layout_for_type(&p.type_spec) {
-                    layout.classify_riscv_float_fields(&*self.types.borrow_struct_layouts())
+        let param_struct_sizes: Vec<Option<usize>> = params
+            .iter()
+            .map(|p| {
+                let ctype = self.type_spec_to_ctype(&p.type_spec);
+                if self.is_type_struct_or_union(&p.type_spec)
+                    && !self.is_transparent_union(&p.type_spec)
+                {
+                    Some(self.sizeof_type(&p.type_spec))
+                } else if ctype.is_vector() {
+                    // Vector types are passed by value like structs
+                    Some(self.sizeof_type(&p.type_spec))
+                } else if !decomposes_cld && matches!(ctype, CType::ComplexLongDouble) {
+                    Some(self.sizeof_type(&p.type_spec))
+                } else if !decomposes_cd && matches!(ctype, CType::ComplexDouble) {
+                    Some(CType::ComplexDouble.size())
+                } else if !decomposes_cf && matches!(ctype, CType::ComplexFloat) {
+                    Some(CType::ComplexFloat.size())
                 } else {
                     None
                 }
-            } else {
-                None
-            }
-        }).collect();
+            })
+            .collect();
+
+        // Compute per-eightbyte SysV ABI classification for struct params
+        let param_struct_classes: Vec<Vec<crate::common::types::EightbyteClass>> = params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if param_struct_sizes.get(i).copied().flatten().is_some() {
+                    if let Some(layout) = self.get_struct_layout_for_type(&p.type_spec) {
+                        layout.classify_sysv_eightbytes(&*self.types.borrow_struct_layouts())
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect();
+
+        // Compute RISC-V LP64D float field classification for struct params
+        let param_riscv_float_classes: Vec<Option<crate::common::types::RiscvFloatClass>> = params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if param_struct_sizes.get(i).copied().flatten().is_some() {
+                    if let Some(layout) = self.get_struct_layout_for_type(&p.type_spec) {
+                        layout.classify_riscv_float_fields(&*self.types.borrow_struct_layouts())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let sig = if !variadic || !param_tys.is_empty() {
             FuncSig {
@@ -1058,7 +1111,9 @@ impl Lowerer {
     pub(super) fn intern_string_literal(&mut self, s: &str) -> String {
         let label = format!(".Lstr{}", self.next_string);
         self.next_string += 1;
-        self.module.string_literals.push((label.clone(), s.to_string()));
+        self.module
+            .string_literals
+            .push((label.clone(), s.to_string()));
         label
     }
 
@@ -1069,7 +1124,9 @@ impl Lowerer {
         self.next_string += 1;
         let mut chars: Vec<u32> = s.chars().map(|c| c as u32).collect();
         chars.push(0); // null terminator
-        self.module.wide_string_literals.push((label.clone(), chars));
+        self.module
+            .wide_string_literals
+            .push((label.clone(), chars));
         label
     }
 
@@ -1080,7 +1137,9 @@ impl Lowerer {
         self.next_string += 1;
         let mut chars: Vec<u16> = s.chars().map(|c| c as u16).collect();
         chars.push(0); // null terminator
-        self.module.char16_string_literals.push((label.clone(), chars));
+        self.module
+            .char16_string_literals
+            .push((label.clone(), chars));
         label
     }
 
@@ -1093,37 +1152,82 @@ impl Lowerer {
     /// Emit an alloca into the entry block buffer.
     /// Used for local variable declarations so that variables whose
     /// declarations are skipped by `goto` still have valid stack slots.
-    pub(super) fn emit_entry_alloca(&mut self, ty: IrType, size: usize, align: usize, volatile: bool) -> Value {
+    pub(super) fn emit_entry_alloca(
+        &mut self,
+        ty: IrType,
+        size: usize,
+        align: usize,
+        volatile: bool,
+    ) -> Value {
         let dest = self.fresh_value();
         self.func_mut().entry_allocas.push(Instruction::Alloca {
-            dest, ty, size, align, volatile,
+            dest,
+            ty,
+            size,
+            align,
+            volatile,
         });
         dest
     }
 
     /// Emit a binary operation and return the result Value.
-    pub(super) fn emit_binop_val(&mut self, op: IrBinOp, lhs: Operand, rhs: Operand, ty: IrType) -> Value {
+    pub(super) fn emit_binop_val(
+        &mut self,
+        op: IrBinOp,
+        lhs: Operand,
+        rhs: Operand,
+        ty: IrType,
+    ) -> Value {
         let dest = self.fresh_value();
-        self.emit(Instruction::BinOp { dest, op, lhs, rhs, ty });
+        self.emit(Instruction::BinOp {
+            dest,
+            op,
+            lhs,
+            rhs,
+            ty,
+        });
         dest
     }
 
     /// Emit a comparison and return the result Value (I32: 0 or 1).
-    pub(super) fn emit_cmp_val(&mut self, op: IrCmpOp, lhs: Operand, rhs: Operand, ty: IrType) -> Value {
+    pub(super) fn emit_cmp_val(
+        &mut self,
+        op: IrCmpOp,
+        lhs: Operand,
+        rhs: Operand,
+        ty: IrType,
+    ) -> Value {
         let dest = self.fresh_value();
-        self.emit(Instruction::Cmp { dest, op, lhs, rhs, ty });
+        self.emit(Instruction::Cmp {
+            dest,
+            op,
+            lhs,
+            rhs,
+            ty,
+        });
         dest
     }
 
     /// Emit a type cast and return the result Value.
     pub(super) fn emit_cast_val(&mut self, src: Operand, from_ty: IrType, to_ty: IrType) -> Value {
         let dest = self.fresh_value();
-        self.emit(Instruction::Cast { dest, src, from_ty, to_ty });
+        self.emit(Instruction::Cast {
+            dest,
+            src,
+            from_ty,
+            to_ty,
+        });
         dest
     }
 
     /// Emit a GEP + Store: store `val` at `base + byte_offset` with the given type.
-    pub(super) fn emit_store_at_offset(&mut self, base: Value, byte_offset: usize, val: Operand, ty: IrType) {
+    pub(super) fn emit_store_at_offset(
+        &mut self,
+        base: Value,
+        byte_offset: usize,
+        val: Operand,
+        ty: IrType,
+    ) {
         let addr = self.fresh_value();
         self.emit(Instruction::GetElementPtr {
             dest: addr,
@@ -1131,12 +1235,24 @@ impl Lowerer {
             offset: Operand::Const(IrConst::ptr_int(byte_offset as i64)),
             ty,
         });
-        self.emit(Instruction::Store { val, ptr: addr, ty , seg_override: AddressSpace::Default });
+        self.emit(Instruction::Store {
+            val,
+            ptr: addr,
+            ty,
+            seg_override: AddressSpace::Default,
+        });
     }
 
     /// Lower an expression, cast to target type, then store at base + byte_offset.
     /// When target_is_bool is true, normalizes the value (any nonzero -> 1) per C11 6.3.1.2.
-    pub(super) fn emit_init_expr_to_offset_bool(&mut self, e: &Expr, base: Value, byte_offset: usize, target_ty: IrType, target_is_bool: bool) {
+    pub(super) fn emit_init_expr_to_offset_bool(
+        &mut self,
+        e: &Expr,
+        base: Value,
+        byte_offset: usize,
+        target_ty: IrType,
+        target_is_bool: bool,
+    ) {
         let expr_ty = self.get_expr_type(e);
         let val = self.lower_expr(e);
         let val = if target_is_bool {
@@ -1160,7 +1276,13 @@ impl Lowerer {
     }
 
     /// Emit memcpy from src to base + byte_offset.
-    pub(super) fn emit_memcpy_at_offset(&mut self, base: Value, byte_offset: usize, src: Value, size: usize) {
+    pub(super) fn emit_memcpy_at_offset(
+        &mut self,
+        base: Value,
+        byte_offset: usize,
+        src: Value,
+        size: usize,
+    ) {
         let dest = self.emit_gep_offset(base, byte_offset, IrType::Ptr);
         self.emit(Instruction::Memcpy { dest, src, size });
     }
@@ -1200,7 +1322,9 @@ impl Lowerer {
                     if scoped {
                         self.insert_enum_scoped(variant.name.clone(), next_val);
                     } else {
-                        self.types.enum_constants.insert(variant.name.clone(), next_val);
+                        self.types
+                            .enum_constants
+                            .insert(variant.name.clone(), next_val);
                     }
                     variant_values.push((variant.name.clone(), next_val));
                     next_val += 1;
@@ -1219,7 +1343,8 @@ impl Lowerer {
                     }
                 }
             }
-            TypeSpecifier::Struct(_, Some(fields), _, _, _) | TypeSpecifier::Union(_, Some(fields), _, _, _) => {
+            TypeSpecifier::Struct(_, Some(fields), _, _, _)
+            | TypeSpecifier::Union(_, Some(fields), _, _, _) => {
                 for field in fields {
                     self.collect_enum_constants_impl(&field.type_spec, scoped);
                 }
@@ -1302,7 +1427,13 @@ impl Lowerer {
     /// that is exactly one byte longer than the array (due to the implicit NUL
     /// terminator), the trailing NUL is silently dropped. This function respects
     /// that rule by only writing up to `max_bytes` total bytes.
-    pub(super) fn emit_string_to_alloca(&mut self, alloca: Value, s: &str, base_offset: usize, max_bytes: usize) {
+    pub(super) fn emit_string_to_alloca(
+        &mut self,
+        alloca: Value,
+        s: &str,
+        base_offset: usize,
+        max_bytes: usize,
+    ) {
         let str_bytes: Vec<u8> = s.chars().map(|c| c as u8).collect();
         let bytes_to_copy = str_bytes.len().min(max_bytes);
         for j in 0..bytes_to_copy {
@@ -1311,9 +1442,17 @@ impl Lowerer {
             let offset = Operand::Const(IrConst::ptr_int((base_offset + j) as i64));
             let addr = self.fresh_value();
             self.emit(Instruction::GetElementPtr {
-                dest: addr, base: alloca, offset, ty: IrType::I8,
+                dest: addr,
+                base: alloca,
+                offset,
+                ty: IrType::I8,
             });
-            self.emit(Instruction::Store { val, ptr: addr, ty: IrType::I8 , seg_override: AddressSpace::Default });
+            self.emit(Instruction::Store {
+                val,
+                ptr: addr,
+                ty: IrType::I8,
+                seg_override: AddressSpace::Default,
+            });
         }
         // Null terminator -- only write if there's room within max_bytes
         let null_pos = str_bytes.len();
@@ -1321,73 +1460,137 @@ impl Lowerer {
             let null_offset = Operand::Const(IrConst::ptr_int((base_offset + null_pos) as i64));
             let null_addr = self.fresh_value();
             self.emit(Instruction::GetElementPtr {
-                dest: null_addr, base: alloca, offset: null_offset, ty: IrType::I8,
+                dest: null_addr,
+                base: alloca,
+                offset: null_offset,
+                ty: IrType::I8,
             });
-            self.emit(Instruction::Store { val: Operand::Const(IrConst::I8(0)), ptr: null_addr, ty: IrType::I8,
-             seg_override: AddressSpace::Default });
+            self.emit(Instruction::Store {
+                val: Operand::Const(IrConst::I8(0)),
+                ptr: null_addr,
+                ty: IrType::I8,
+                seg_override: AddressSpace::Default,
+            });
         }
     }
 
     /// Emit a wide string (L"...") to a local alloca. Each character is stored as I32 (wchar_t).
-    pub(super) fn emit_wide_string_to_alloca(&mut self, alloca: Value, s: &str, base_offset: usize) {
+    pub(super) fn emit_wide_string_to_alloca(
+        &mut self,
+        alloca: Value,
+        s: &str,
+        base_offset: usize,
+    ) {
         for (j, ch) in s.chars().enumerate() {
             let val = Operand::Const(IrConst::I32(ch as i32));
             let byte_offset = base_offset + j * 4;
             let offset = Operand::Const(IrConst::ptr_int(byte_offset as i64));
             let addr = self.fresh_value();
             self.emit(Instruction::GetElementPtr {
-                dest: addr, base: alloca, offset, ty: IrType::I8,
+                dest: addr,
+                base: alloca,
+                offset,
+                ty: IrType::I8,
             });
-            self.emit(Instruction::Store { val, ptr: addr, ty: IrType::I32 , seg_override: AddressSpace::Default });
+            self.emit(Instruction::Store {
+                val,
+                ptr: addr,
+                ty: IrType::I32,
+                seg_override: AddressSpace::Default,
+            });
         }
         // Null terminator
         let null_byte_offset = base_offset + s.chars().count() * 4;
         let null_offset = Operand::Const(IrConst::ptr_int(null_byte_offset as i64));
         let null_addr = self.fresh_value();
         self.emit(Instruction::GetElementPtr {
-            dest: null_addr, base: alloca, offset: null_offset, ty: IrType::I8,
+            dest: null_addr,
+            base: alloca,
+            offset: null_offset,
+            ty: IrType::I8,
         });
-        self.emit(Instruction::Store { val: Operand::Const(IrConst::I32(0)), ptr: null_addr, ty: IrType::I32,
-         seg_override: AddressSpace::Default });
+        self.emit(Instruction::Store {
+            val: Operand::Const(IrConst::I32(0)),
+            ptr: null_addr,
+            ty: IrType::I32,
+            seg_override: AddressSpace::Default,
+        });
     }
 
     /// Emit a char16_t string (u"...") to a local alloca. Each character is stored as U16.
-    pub(super) fn emit_char16_string_to_alloca(&mut self, alloca: Value, s: &str, base_offset: usize) {
+    pub(super) fn emit_char16_string_to_alloca(
+        &mut self,
+        alloca: Value,
+        s: &str,
+        base_offset: usize,
+    ) {
         for (j, ch) in s.chars().enumerate() {
             let val = Operand::Const(IrConst::I16(ch as u16 as i16));
             let byte_offset = base_offset + j * 2;
             let offset = Operand::Const(IrConst::ptr_int(byte_offset as i64));
             let addr = self.fresh_value();
             self.emit(Instruction::GetElementPtr {
-                dest: addr, base: alloca, offset, ty: IrType::I8,
+                dest: addr,
+                base: alloca,
+                offset,
+                ty: IrType::I8,
             });
-            self.emit(Instruction::Store { val, ptr: addr, ty: IrType::U16, seg_override: AddressSpace::Default });
+            self.emit(Instruction::Store {
+                val,
+                ptr: addr,
+                ty: IrType::U16,
+                seg_override: AddressSpace::Default,
+            });
         }
         // Null terminator
         let null_byte_offset = base_offset + s.chars().count() * 2;
         let null_offset = Operand::Const(IrConst::ptr_int(null_byte_offset as i64));
         let null_addr = self.fresh_value();
         self.emit(Instruction::GetElementPtr {
-            dest: null_addr, base: alloca, offset: null_offset, ty: IrType::I8,
+            dest: null_addr,
+            base: alloca,
+            offset: null_offset,
+            ty: IrType::I8,
         });
-        self.emit(Instruction::Store { val: Operand::Const(IrConst::I16(0)), ptr: null_addr, ty: IrType::U16,
-         seg_override: AddressSpace::Default });
+        self.emit(Instruction::Store {
+            val: Operand::Const(IrConst::I16(0)),
+            ptr: null_addr,
+            ty: IrType::U16,
+            seg_override: AddressSpace::Default,
+        });
     }
 
     /// Emit a single element store at a given byte offset in an alloca.
     pub(super) fn emit_array_element_store(
-        &mut self, alloca: Value, val: Operand, offset: usize, ty: IrType,
+        &mut self,
+        alloca: Value,
+        val: Operand,
+        offset: usize,
+        ty: IrType,
     ) {
         let offset_val = Operand::Const(IrConst::ptr_int(offset as i64));
         let elem_addr = self.fresh_value();
         self.emit(Instruction::GetElementPtr {
-            dest: elem_addr, base: alloca, offset: offset_val, ty,
+            dest: elem_addr,
+            base: alloca,
+            offset: offset_val,
+            ty,
         });
-        self.emit(Instruction::Store { val, ptr: elem_addr, ty , seg_override: AddressSpace::Default });
+        self.emit(Instruction::Store {
+            val,
+            ptr: elem_addr,
+            ty,
+            seg_override: AddressSpace::Default,
+        });
     }
 
     /// Zero-initialize a region of memory within an alloca at the given byte offset.
-    pub(super) fn zero_init_region(&mut self, alloca: Value, base_offset: usize, region_size: usize) {
+    pub(super) fn zero_init_region(
+        &mut self,
+        alloca: Value,
+        base_offset: usize,
+        region_size: usize,
+    ) {
         let mut offset = base_offset;
         let end = base_offset + region_size;
         while offset + 8 <= end {
@@ -1398,8 +1601,12 @@ impl Lowerer {
                 offset: Operand::Const(IrConst::ptr_int(offset as i64)),
                 ty: IrType::I64,
             });
-            self.emit(Instruction::Store { val: Operand::Const(IrConst::I64(0)), ptr: addr, ty: IrType::I64,
-             seg_override: AddressSpace::Default });
+            self.emit(Instruction::Store {
+                val: Operand::Const(IrConst::I64(0)),
+                ptr: addr,
+                ty: IrType::I64,
+                seg_override: AddressSpace::Default,
+            });
             offset += 8;
         }
         while offset < end {
@@ -1410,8 +1617,12 @@ impl Lowerer {
                 offset: Operand::Const(IrConst::ptr_int(offset as i64)),
                 ty: IrType::I8,
             });
-            self.emit(Instruction::Store { val: Operand::Const(IrConst::I8(0)), ptr: addr, ty: IrType::I8,
-             seg_override: AddressSpace::Default });
+            self.emit(Instruction::Store {
+                val: Operand::Const(IrConst::I8(0)),
+                ptr: addr,
+                ty: IrType::I8,
+                seg_override: AddressSpace::Default,
+            });
             offset += 1;
         }
     }
@@ -1420,5 +1631,4 @@ impl Lowerer {
     pub(super) fn zero_init_alloca(&mut self, alloca: Value, total_size: usize) {
         self.zero_init_region(alloca, 0, total_size);
     }
-
 }

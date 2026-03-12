@@ -1,5 +1,5 @@
-use std::rc::Rc;
 use std::cell::Cell;
+use std::rc::Rc;
 
 use crate::common::fx_hash::FxHashMap;
 
@@ -50,7 +50,11 @@ pub fn target_long_double_is_f128() -> bool {
 /// it is I32. Use this instead of hardcoding `IrType::I64` for comparison results,
 /// logical operation results, and other values that represent C `int`-class results.
 pub fn target_int_ir_type() -> IrType {
-    if target_is_32bit() { IrType::I32 } else { IrType::I64 }
+    if target_is_32bit() {
+        IrType::I32
+    } else {
+        IrType::I64
+    }
 }
 
 /// Return the operation type for widened integer arithmetic.
@@ -63,8 +67,11 @@ pub fn target_int_ir_type() -> IrType {
 ///   doesn't needlessly generate 64-bit operations for 32-bit C types.
 pub fn widened_op_type(common_ty: IrType) -> IrType {
     // Float and 128-bit types are never widened; return them unchanged.
-    if common_ty.is_float() || common_ty == IrType::I128 || common_ty == IrType::U128
-       || common_ty == IrType::Void {
+    if common_ty.is_float()
+        || common_ty == IrType::I128
+        || common_ty == IrType::U128
+        || common_ty == IrType::Void
+    {
         return common_ty;
     }
     if target_is_32bit() {
@@ -142,7 +149,10 @@ pub enum RiscvFloatClass {
     OneFloat { is_double: bool },
     /// Struct with exactly two float/double members, no other data members.
     /// Passed in two FP registers (fa0-fa7).
-    TwoFloats { lo_is_double: bool, hi_is_double: bool },
+    TwoFloats {
+        lo_is_double: bool,
+        hi_is_double: bool,
+    },
     /// Struct with one float/double + one integer, float comes first in memory.
     /// Float in FP register, integer in GP register.
     FloatAndInt {
@@ -259,9 +269,10 @@ impl EnumType {
             // otherwise 8 bytes (GCC extension for values exceeding 32-bit range).
             // Values like `1U << 31` (0x80000000) fit in unsigned int (u32) even
             // though they exceed signed int (i32) range.
-            let exceeds_32bit = self.variants.iter().any(|(_, v)| {
-                *v > u32::MAX as i64 || *v < i32::MIN as i64
-            });
+            let exceeds_32bit = self
+                .variants
+                .iter()
+                .any(|(_, v)| *v > u32::MAX as i64 || *v < i32::MIN as i64);
             if exceeds_32bit {
                 return 8;
             }
@@ -276,16 +287,26 @@ impl EnumType {
         let max_val = self.variants.iter().map(|(_, v)| *v).max().unwrap();
         if min_val >= 0 {
             // Unsigned range
-            if max_val <= 0xFF { 1 }
-            else if max_val <= 0xFFFF { 2 }
-            else if max_val <= 0xFFFF_FFFF { 4 }
-            else { 8 }
+            if max_val <= 0xFF {
+                1
+            } else if max_val <= 0xFFFF {
+                2
+            } else if max_val <= 0xFFFF_FFFF {
+                4
+            } else {
+                8
+            }
         } else {
             // Signed range
-            if min_val >= -128 && max_val <= 127 { 1 }
-            else if min_val >= -32768 && max_val <= 32767 { 2 }
-            else if min_val >= i32::MIN as i64 && max_val <= i32::MAX as i64 { 4 }
-            else { 8 }
+            if min_val >= -128 && max_val <= 127 {
+                1
+            } else if min_val >= -32768 && max_val <= 32767 {
+                2
+            } else if min_val >= i32::MIN as i64 && max_val <= i32::MAX as i64 {
+                4
+            } else {
+                8
+            }
         }
     }
 }
@@ -333,8 +354,12 @@ impl StructLayoutBuilder {
     }
 
     /// Compute the effective alignment and size for a field.
-    fn compute_field_alignment(&mut self, field: &StructField, max_field_align: Option<usize>,
-                               ctx: &dyn StructLayoutProvider) -> (usize, usize) {
+    fn compute_field_alignment(
+        &mut self,
+        field: &StructField,
+        max_field_align: Option<usize>,
+        ctx: &dyn StructLayoutProvider,
+    ) -> (usize, usize) {
         let natural_align = field.ty.align_ctx(ctx);
         let field_align = if field.is_packed {
             // Per-field __attribute__((packed)) forces alignment to 1
@@ -402,8 +427,13 @@ impl StructLayoutBuilder {
     }
 
     /// Layout a standard (non-packed) bitfield — SysV ABI compatible.
-    fn layout_standard_bitfield(&mut self, field: &StructField, bw: u32,
-                                field_size: usize, field_align: usize) {
+    fn layout_standard_bitfield(
+        &mut self,
+        field: &StructField,
+        bw: u32,
+        field_size: usize,
+        field_align: usize,
+    ) {
         let unit_bits = (field_size * 8) as u32;
 
         // Compute absolute bit position of the cursor
@@ -438,8 +468,16 @@ impl StructLayoutBuilder {
         // Compute storage unit offset.
         // New placement uses ABI alignment; continuation uses sizeof.
         let storage_mask = if !self.in_bitfield || straddles {
-            if field_align > 0 { field_align } else { 1 }
-        } else if field_size > 0 { field_size } else { 1 };
+            if field_align > 0 {
+                field_align
+            } else {
+                1
+            }
+        } else if field_size > 0 {
+            field_size
+        } else {
+            1
+        };
         let field_storage_offset = ((placed_abs_bit / 8) as usize) & !(storage_mask - 1);
         let field_bit_in_storage = (placed_abs_bit - (field_storage_offset as u64) * 8) as u32;
 
@@ -460,7 +498,10 @@ impl StructLayoutBuilder {
             self.bf_unit_size = field_end_byte - self.bf_unit_offset;
         }
         let new_bf_bit_pos = placed_abs_bit + bw as u64 - (self.bf_unit_offset as u64) * 8;
-        debug_assert!(new_bf_bit_pos <= u32::MAX as u64, "bitfield bit position overflow");
+        debug_assert!(
+            new_bf_bit_pos <= u32::MAX as u64,
+            "bitfield bit position overflow"
+        );
         self.bf_bit_pos = new_bf_bit_pos as u32;
         self.in_bitfield = true;
     }
@@ -554,7 +595,10 @@ pub enum InitFieldResolution {
     /// Found inside an anonymous struct/union member at the given index.
     /// The String is the original designator name to use when drilling into
     /// the anonymous member.
-    AnonymousMember { anon_field_idx: usize, inner_name: String },
+    AnonymousMember {
+        anon_field_idx: usize,
+        inner_name: String,
+    },
 }
 
 /// Layout info for a single field.
@@ -599,7 +643,11 @@ impl StructLayout {
     ///   For #pragma pack(N), pass Some(N).
     ///   For normal structs, pass None.
     /// `ctx`: provides struct/union layout lookup for nested struct/union field types.
-    pub fn for_struct_with_packing(fields: &[StructField], max_field_align: Option<usize>, ctx: &dyn StructLayoutProvider) -> Self {
+    pub fn for_struct_with_packing(
+        fields: &[StructField],
+        max_field_align: Option<usize>,
+        ctx: &dyn StructLayoutProvider,
+    ) -> Self {
         let mut b = StructLayoutBuilder::new(fields.len(), max_field_align);
 
         for field in fields {
@@ -626,7 +674,11 @@ impl StructLayout {
     ///   For __attribute__((packed)), pass Some(1).
     ///   For #pragma pack(N), pass Some(N).
     ///   For normal unions, pass None.
-    pub fn for_union_with_packing(fields: &[StructField], max_field_align: Option<usize>, ctx: &dyn StructLayoutProvider) -> Self {
+    pub fn for_union_with_packing(
+        fields: &[StructField],
+        max_field_align: Option<usize>,
+        ctx: &dyn StructLayoutProvider,
+    ) -> Self {
         let mut max_size = 0usize;
         let mut max_align = 1usize;
         let mut field_layouts = Vec::with_capacity(fields.len());
@@ -683,7 +735,9 @@ impl StructLayout {
     /// Check if any field in this layout is or contains a pointer/function type.
     /// Recursively checks array element types and nested struct/union fields.
     pub fn has_pointer_fields(&self, ctx: &dyn StructLayoutProvider) -> bool {
-        self.fields.iter().any(|f| Self::field_type_has_pointers(&f.ty, ctx))
+        self.fields
+            .iter()
+            .any(|f| Self::field_type_has_pointers(&f.ty, ctx))
     }
 
     /// Check if a type is or contains pointer/function types (recursive).
@@ -693,7 +747,10 @@ impl StructLayout {
             CType::Array(inner, _) => Self::field_type_has_pointers(inner, ctx),
             CType::Struct(key) | CType::Union(key) => {
                 if let Some(layout) = ctx.get_struct_layout(key) {
-                    layout.fields.iter().any(|f| Self::field_type_has_pointers(&f.ty, ctx))
+                    layout
+                        .fields
+                        .iter()
+                        .any(|f| Self::field_type_has_pointers(&f.ty, ctx))
                 } else {
                     false
                 }
@@ -774,7 +831,13 @@ impl StructLayout {
                 let elem_size = elem_ty.size();
                 if elem_size > 0 {
                     for i in 0..*count {
-                        Self::classify_field_type(elem_ty, base_offset + i * elem_size, classes, n_eightbytes, ctx);
+                        Self::classify_field_type(
+                            elem_ty,
+                            base_offset + i * elem_size,
+                            classes,
+                            n_eightbytes,
+                            ctx,
+                        );
                     }
                 }
             }
@@ -815,7 +878,13 @@ impl StructLayout {
                 if elem_size > 0 {
                     let num_elems = total_size / elem_size;
                     for i in 0..num_elems {
-                        Self::classify_field_type(elem_ty, base_offset + i * elem_size, classes, n_eightbytes, ctx);
+                        Self::classify_field_type(
+                            elem_ty,
+                            base_offset + i * elem_size,
+                            classes,
+                            n_eightbytes,
+                            ctx,
+                        );
                     }
                 } else {
                     let eb_idx = base_offset / 8;
@@ -845,7 +914,10 @@ impl StructLayout {
     ///
     /// Returns `None` if the struct does not qualify for FP register passing.
     /// Returns `Some(RiscvFloatClass)` describing the FP register assignment.
-    pub fn classify_riscv_float_fields(&self, ctx: &dyn StructLayoutProvider) -> Option<RiscvFloatClass> {
+    pub fn classify_riscv_float_fields(
+        &self,
+        ctx: &dyn StructLayoutProvider,
+    ) -> Option<RiscvFloatClass> {
         // Only for small structs (≤ 16 bytes on RV64, ≤ 8 bytes on RV32)
         let xlen = target_ptr_size();
         if self.size > 2 * xlen || self.size == 0 {
@@ -875,7 +947,10 @@ impl StructLayout {
             (2, 0) => {
                 let lo_is_double = float_fields[0].1 == 8;
                 let hi_is_double = float_fields[1].1 == 8;
-                Some(RiscvFloatClass::TwoFloats { lo_is_double, hi_is_double })
+                Some(RiscvFloatClass::TwoFloats {
+                    lo_is_double,
+                    hi_is_double,
+                })
             }
             // 1 float + 1 int: pass float in FP reg, int in GP reg
             (1, 1) => {
@@ -940,7 +1015,13 @@ impl StructLayout {
                             // Unions break FP classification
                             return false;
                         }
-                        if !Self::collect_riscv_fields(&layout.fields, offset, float_fields, int_fields, ctx) {
+                        if !Self::collect_riscv_fields(
+                            &layout.fields,
+                            offset,
+                            float_fields,
+                            int_fields,
+                            ctx,
+                        ) {
                             return false;
                         }
                     } else {
@@ -963,7 +1044,13 @@ impl StructLayout {
                                     if layout.is_union {
                                         return false;
                                     }
-                                    if !Self::collect_riscv_fields(&layout.fields, elem_offset, float_fields, int_fields, ctx) {
+                                    if !Self::collect_riscv_fields(
+                                        &layout.fields,
+                                        elem_offset,
+                                        float_fields,
+                                        int_fields,
+                                        ctx,
+                                    ) {
                                         return false;
                                     }
                                 } else {
@@ -1013,10 +1100,17 @@ impl StructLayout {
     /// participate. Unnamed bitfields (empty name, has bit_width) do NOT.
     ///
     /// Returns the resolved field index, or `None` if no valid field found.
-    pub fn resolve_init_field_idx(&self, designator_name: Option<&str>, current_idx: usize, ctx: &dyn StructLayoutProvider) -> Option<usize> {
+    pub fn resolve_init_field_idx(
+        &self,
+        designator_name: Option<&str>,
+        current_idx: usize,
+        ctx: &dyn StructLayoutProvider,
+    ) -> Option<usize> {
         match self.resolve_init_field(designator_name, current_idx, ctx) {
             Some(InitFieldResolution::Direct(idx)) => Some(idx),
-            Some(InitFieldResolution::AnonymousMember { anon_field_idx, .. }) => Some(anon_field_idx),
+            Some(InitFieldResolution::AnonymousMember { anon_field_idx, .. }) => {
+                Some(anon_field_idx)
+            }
             None => None,
         }
     }
@@ -1026,7 +1120,12 @@ impl StructLayout {
     /// When a designator name is found inside an anonymous struct/union member,
     /// returns `AnonymousMember` with the anonymous field's index and the inner name,
     /// allowing callers to drill into the anonymous member for proper initialization.
-    pub fn resolve_init_field(&self, designator_name: Option<&str>, current_idx: usize, ctx: &dyn StructLayoutProvider) -> Option<InitFieldResolution> {
+    pub fn resolve_init_field(
+        &self,
+        designator_name: Option<&str>,
+        current_idx: usize,
+        ctx: &dyn StructLayoutProvider,
+    ) -> Option<InitFieldResolution> {
         if let Some(name) = designator_name {
             // First try direct field lookup
             if let Some(idx) = self.fields.iter().position(|f| f.name == name) {
@@ -1070,7 +1169,11 @@ impl StructLayout {
 
     /// Check if an anonymous struct/union member (identified by layout key) contains
     /// a field with the given name, including recursively through nested anonymous members.
-    fn anon_member_contains_field_ctx(key: &str, name: &str, ctx: &dyn StructLayoutProvider) -> bool {
+    fn anon_member_contains_field_ctx(
+        key: &str,
+        name: &str,
+        ctx: &dyn StructLayoutProvider,
+    ) -> bool {
         if let Some(layout) = ctx.get_struct_layout(key) {
             for f in &layout.fields {
                 if f.name == name {
@@ -1094,7 +1197,11 @@ impl StructLayout {
 
     /// Look up a field by name, returning its offset and a clone of its type.
     /// Recursively searches anonymous struct/union members.
-    pub fn field_offset(&self, name: &str, ctx: &dyn StructLayoutProvider) -> Option<(usize, CType)> {
+    pub fn field_offset(
+        &self,
+        name: &str,
+        ctx: &dyn StructLayoutProvider,
+    ) -> Option<(usize, CType)> {
         // First, try direct field lookup
         if let Some(f) = self.fields.iter().find(|f| f.name == name) {
             return Some((f.offset, f.ty.clone()));
@@ -1116,9 +1223,10 @@ impl StructLayout {
             if let Some(inner_field) = anon_layout.fields.iter().find(|sf| sf.name == name) {
                 // Compute offset within the anonymous struct/union
                 let inner_offset = match &f.ty {
-                    CType::Struct(_) => {
-                        anon_layout.field_offset(name, ctx).map(|(o, _)| o).unwrap_or(0)
-                    }
+                    CType::Struct(_) => anon_layout
+                        .field_offset(name, ctx)
+                        .map(|(o, _)| o)
+                        .unwrap_or(0),
                     CType::Union(_) => 0, // all union fields at offset 0
                     _ => 0,
                 };
@@ -1175,7 +1283,9 @@ impl StructLayout {
 
 /// Align `offset` up to the next multiple of `align`.
 pub fn align_up(offset: usize, align: usize) -> usize {
-    if align == 0 { return offset; }
+    if align == 0 {
+        return offset;
+    }
     let mask = align - 1;
     match offset.checked_add(mask) {
         Some(v) => v & !mask,
@@ -1270,7 +1380,8 @@ impl std::fmt::Display for CType {
             }
             CType::Union(name) => {
                 // Strip the "union." or "struct." prefix if present
-                let display_name = name.strip_prefix("union.")
+                let display_name = name
+                    .strip_prefix("union.")
                     .or_else(|| name.strip_prefix("struct."))
                     .unwrap_or(name);
                 if display_name.starts_with("__anon_struct_") {
@@ -1314,14 +1425,26 @@ impl CType {
             // i686: long double is 12 bytes (80-bit x87 with 4 bytes padding)
             // x86-64: long double is 16 bytes (80-bit x87 with 6 bytes padding)
             // ARM/RISC-V: long double is 16 bytes (IEEE binary128)
-            CType::LongDouble => if ptr_sz == 4 { 12 } else { 16 },
-            CType::ComplexFloat => 8,     // 2 * sizeof(float)
-            CType::ComplexDouble => 16,   // 2 * sizeof(double)
-            CType::ComplexLongDouble => if ptr_sz == 4 { 24 } else { 32 },
+            CType::LongDouble => {
+                if ptr_sz == 4 {
+                    12
+                } else {
+                    16
+                }
+            }
+            CType::ComplexFloat => 8,   // 2 * sizeof(float)
+            CType::ComplexDouble => 16, // 2 * sizeof(double)
+            CType::ComplexLongDouble => {
+                if ptr_sz == 4 {
+                    24
+                } else {
+                    32
+                }
+            }
             CType::Pointer(_, _) => ptr_sz,
             CType::Array(elem, Some(n)) => elem.size_ctx(ctx) * n,
             CType::Array(_, None) => ptr_sz, // incomplete array treated as pointer
-            CType::Function(_) => ptr_sz, // function pointer size
+            CType::Function(_) => ptr_sz,    // function pointer size
             CType::Struct(key) | CType::Union(key) => {
                 ctx.get_struct_layout(key).map(|l| l.size).unwrap_or(0)
             }
@@ -1343,15 +1466,51 @@ impl CType {
             CType::Long | CType::ULong => ptr_sz,
             // i686: long long aligned to 4 (not 8!) per i386 System V ABI
             // LP64: long long aligned to 8
-            CType::LongLong | CType::ULongLong => if ptr_sz == 4 { 4 } else { 8 },
-            CType::Int128 | CType::UInt128 => if ptr_sz == 4 { 4 } else { 16 },
+            CType::LongLong | CType::ULongLong => {
+                if ptr_sz == 4 {
+                    4
+                } else {
+                    8
+                }
+            }
+            CType::Int128 | CType::UInt128 => {
+                if ptr_sz == 4 {
+                    4
+                } else {
+                    16
+                }
+            }
             CType::Float => 4,
-            CType::Double => if ptr_sz == 4 { 4 } else { 8 },
+            CType::Double => {
+                if ptr_sz == 4 {
+                    4
+                } else {
+                    8
+                }
+            }
             // i686: long double aligned to 4; LP64: aligned to 16
-            CType::LongDouble => if ptr_sz == 4 { 4 } else { 16 },
-            CType::ComplexFloat => 4,       // align of float component
-            CType::ComplexDouble => if ptr_sz == 4 { 4 } else { 8 },
-            CType::ComplexLongDouble => if ptr_sz == 4 { 4 } else { 16 },
+            CType::LongDouble => {
+                if ptr_sz == 4 {
+                    4
+                } else {
+                    16
+                }
+            }
+            CType::ComplexFloat => 4, // align of float component
+            CType::ComplexDouble => {
+                if ptr_sz == 4 {
+                    4
+                } else {
+                    8
+                }
+            }
+            CType::ComplexLongDouble => {
+                if ptr_sz == 4 {
+                    4
+                } else {
+                    16
+                }
+            }
             CType::Pointer(_, _) => ptr_sz,
             CType::Array(elem, _) => elem.align_ctx(ctx),
             CType::Function(_) => ptr_sz,
@@ -1395,21 +1554,39 @@ impl CType {
         }
     }
 
-
     pub fn is_integer(&self) -> bool {
-        matches!(self, CType::Bool | CType::Char | CType::UChar | CType::Short | CType::UShort |
-                       CType::Int | CType::UInt | CType::Long | CType::ULong |
-                       CType::LongLong | CType::ULongLong |
-                       CType::Int128 | CType::UInt128 | CType::Enum(_))
+        matches!(
+            self,
+            CType::Bool
+                | CType::Char
+                | CType::UChar
+                | CType::Short
+                | CType::UShort
+                | CType::Int
+                | CType::UInt
+                | CType::Long
+                | CType::ULong
+                | CType::LongLong
+                | CType::ULongLong
+                | CType::Int128
+                | CType::UInt128
+                | CType::Enum(_)
+        )
     }
 
     pub fn is_signed(&self) -> bool {
-        matches!(self, CType::Char | CType::Short | CType::Int | CType::Long | CType::LongLong | CType::Int128)
+        matches!(
+            self,
+            CType::Char | CType::Short | CType::Int | CType::Long | CType::LongLong | CType::Int128
+        )
     }
 
     /// Whether this is a complex type (_Complex float/double/long double).
     pub fn is_complex(&self) -> bool {
-        matches!(self, CType::ComplexFloat | CType::ComplexDouble | CType::ComplexLongDouble)
+        matches!(
+            self,
+            CType::ComplexFloat | CType::ComplexDouble | CType::ComplexLongDouble
+        )
     }
 
     /// Whether this is a floating-point type (float, double, long double).
@@ -1449,8 +1626,7 @@ impl CType {
     /// Short/UShort all fit in int).
     pub fn integer_promoted(&self) -> CType {
         match self {
-            CType::Bool | CType::Char | CType::UChar
-            | CType::Short | CType::UShort => CType::Int,
+            CType::Bool | CType::Char | CType::UChar | CType::Short | CType::UShort => CType::Int,
             other => other.clone(),
         }
     }
@@ -1465,12 +1641,19 @@ impl CType {
         }
     }
 
-
     /// Whether this is an unsigned integer type.
     /// Used by usual arithmetic conversions (C11 6.3.1.8).
     pub fn is_unsigned(&self) -> bool {
-        matches!(self, CType::Bool | CType::UChar | CType::UShort | CType::UInt
-            | CType::ULong | CType::ULongLong | CType::UInt128)
+        matches!(
+            self,
+            CType::Bool
+                | CType::UChar
+                | CType::UShort
+                | CType::UInt
+                | CType::ULong
+                | CType::ULongLong
+                | CType::UInt128
+        )
     }
 
     /// Integer conversion rank for C types (C11 6.3.1.1).
@@ -1540,7 +1723,11 @@ impl CType {
                 2 => CType::ComplexDouble,
                 1 => CType::ComplexFloat,
                 _ => {
-                    if l_complex { l.clone() } else { r.clone() }
+                    if l_complex {
+                        l.clone()
+                    } else {
+                        r.clone()
+                    }
                 }
             };
         }
@@ -1563,14 +1750,22 @@ impl CType {
         let r_unsigned = r.is_unsigned();
 
         if l_unsigned == r_unsigned {
-            if l_rank >= r_rank { l } else { r }
+            if l_rank >= r_rank {
+                l
+            } else {
+                r
+            }
         } else if l_unsigned && l_rank >= r_rank {
             l
         } else if r_unsigned && r_rank >= l_rank {
             r
         } else {
             // The signed type has higher rank and can represent all values
-            if l_unsigned { r } else { l }
+            if l_unsigned {
+                r
+            } else {
+                l
+            }
         }
     }
 
@@ -1669,7 +1864,6 @@ impl CType {
         }
     }
 
-
     /// Extract the return type from a function pointer CType.
     ///
     /// Handles these CType shapes:
@@ -1687,9 +1881,21 @@ impl CType {
                 CType::Function(ft) => Some(ft.return_type.clone()),
                 CType::Pointer(inner2, _) => match inner2.as_ref() {
                     CType::Function(ft) => Some(ft.return_type.clone()),
-                    _ => if strict { None } else { Some(inner.as_ref().clone()) },
+                    _ => {
+                        if strict {
+                            None
+                        } else {
+                            Some(inner.as_ref().clone())
+                        }
+                    }
                 },
-                other => if strict { None } else { Some(other.clone()) },
+                other => {
+                    if strict {
+                        None
+                    } else {
+                        Some(other.clone())
+                    }
+                }
             },
             CType::Function(ft) => Some(ft.return_type.clone()),
             _ => None,
@@ -1740,7 +1946,13 @@ impl IrType {
             IrType::F64 => 8,
             // i686: F128 (long double) is 12 bytes (80-bit x87 + 2 bytes padding)
             // LP64: F128 is 16 bytes
-            IrType::F128 => if target_is_32bit() { 12 } else { 16 },
+            IrType::F128 => {
+                if target_is_32bit() {
+                    12
+                } else {
+                    16
+                }
+            }
             IrType::Void => 0,
         }
     }
@@ -1775,12 +1987,18 @@ impl IrType {
 
     /// Whether this is an unsigned integer type.
     pub fn is_unsigned(&self) -> bool {
-        matches!(self, IrType::U8 | IrType::U16 | IrType::U32 | IrType::U64 | IrType::U128)
+        matches!(
+            self,
+            IrType::U8 | IrType::U16 | IrType::U32 | IrType::U64 | IrType::U128
+        )
     }
 
     /// Whether this is a signed integer type.
     pub fn is_signed(&self) -> bool {
-        matches!(self, IrType::I8 | IrType::I16 | IrType::I32 | IrType::I64 | IrType::I128)
+        matches!(
+            self,
+            IrType::I8 | IrType::I16 | IrType::I32 | IrType::I64 | IrType::I128
+        )
     }
 
     /// Whether this is any integer type (signed or unsigned).
@@ -1870,8 +2088,20 @@ impl IrType {
             }
             CType::UInt => IrType::U32,
             // ILP32: long = 32-bit; LP64: long = 64-bit
-            CType::Long => if is_32bit { IrType::I32 } else { IrType::I64 },
-            CType::ULong => if is_32bit { IrType::U32 } else { IrType::U64 },
+            CType::Long => {
+                if is_32bit {
+                    IrType::I32
+                } else {
+                    IrType::I64
+                }
+            }
+            CType::ULong => {
+                if is_32bit {
+                    IrType::U32
+                } else {
+                    IrType::U64
+                }
+            }
             CType::LongLong => IrType::I64,
             CType::ULongLong => IrType::U64,
             CType::Int128 => IrType::I128,

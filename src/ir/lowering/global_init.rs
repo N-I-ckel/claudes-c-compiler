@@ -721,9 +721,7 @@ impl Lowerer {
         has_addr_exprs
             || (is_ptr_array
                 && !is_multidim_char_array
-                && items
-                    .iter()
-                    .any(h::init_contains_string_literal))
+                && items.iter().any(h::init_contains_string_literal))
     }
 
     /// Lower a pointer array or array with address relocations.

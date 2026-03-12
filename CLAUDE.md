@@ -1,4 +1,6 @@
-# CLAUDE.md — Development Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Quick Reference
 
@@ -8,6 +10,9 @@ cargo build --release
 
 # Run all unit tests (~512 tests)
 cargo test --release
+
+# Run a single test by name pattern
+cargo test --release test_name_pattern
 
 # Lint (all warnings must pass)
 cargo clippy -- -D warnings
@@ -67,26 +72,26 @@ include/        Bundled C headers (SIMD intrinsics, NEON, etc.)
 
 Each `src/` subdirectory has its own `README.md`. See also [DESIGN_DOC.md](DESIGN_DOC.md).
 
+### Key Abstractions
+
+- **`ArchCodegen` trait** (`src/backend/traits.rs`): ~185 methods that every backend implements. Shared default implementations call small "primitive" methods, so most backend work involves implementing or modifying these primitives. The `delegate_to_impl!` macro eliminates boilerplate.
+- **IR types** (`src/ir/instruction.rs`): `Value(u32)` is an SSA virtual register, `BlockId(u32)` is a basic block label, `Operand` is either `Value` or `Const(IrConst)`, and `Instruction` is an enum with ~38 variants.
+- **Dual type system** (`src/common/types.rs`): `CType` for C-level semantics (frontend), `IrType` for machine-level operations (14 variants: I8-I128, U8-U128, F32/F64/F128, Ptr, Void).
+
 ## Testing
 
-### Unit Tests
-
-All unit tests are in-source `#[test]` functions. Always run in release mode:
+All unit tests are in-source `#[test]` functions. Always run in release mode (debug is too slow):
 
 ```bash
-cargo test --release
+cargo test --release                    # all tests
+cargo test --release some_pattern       # filter by name
 ```
 
 ### Manual End-to-End Testing
 
 ```bash
-# Write a test program
 echo 'int main() { return 42; }' > /tmp/test.c
-
-# Compile with CCC
 ./target/release/ccc -o /tmp/test /tmp/test.c
-
-# Run and check exit code
 /tmp/test; echo $?  # Should print 42
 
 # Cross-compile and test with QEMU
